@@ -1,0 +1,19 @@
+version: '3.8'
+
+services:
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - EXPO_PUBLIC_N8N_URL=${N8N_URL:-http://n8n-ywskksw80g88gkg4g4kkog0g.178.18.253.253.sslip.io/webhook/66c6b4ae-eae4-411c-ad4f-64a359ec245f}
+    restart: unless-stopped
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge
