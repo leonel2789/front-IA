@@ -60,14 +60,16 @@ export default function ChatScreen() {
   // Auto-scroll a fin del chat
   useEffect(() => {
     if (flatListRef.current && messages.length > 0) {
+      // Pequeño delay para asegurar que el contenido se haya renderizado
       const timer = setTimeout(() => {
         flatListRef.current?.scrollToEnd({ animated: true });
       }, 150);
       
       return () => clearTimeout(timer);
     }
-  }, [messages.length]);
+  }, [messages.length]); // Solo cuando cambia la cantidad de mensajes
 
+  // Limpiar mensajes cuando cambia la sesión
   useEffect(() => {
     setMessages([])
   }, [currentSessionId])
@@ -76,6 +78,7 @@ export default function ChatScreen() {
     const trimmed = text.trim()
     if (!trimmed) return
 
+    // Si no hay sesión actual, crear una nueva
     let sessionId = currentSessionId
     if (!sessionId) {
       sessionId = await createNewSession(trimmed)
@@ -87,10 +90,11 @@ export default function ChatScreen() {
     setMessages(prev => [...prev, { id: 'loading-msg', text: '', isUser: false, isLoading: true }])
 
     try {
+      // Enviar en formato plano que n8n puede usar directamente
       const payload = {
-        chatInput: trimmed,
-        message: trimmed,
-        sessionId: sessionId || 'default-session',
+        chatInput: trimmed,     // Para el AI Agent
+        message: trimmed,       // Para compatibilidad
+        sessionId: sessionId || 'default-session', // Para el Chat Memory
       }
 
       console.log('🚀 Enviando payload:', JSON.stringify(payload, null, 2))
@@ -134,6 +138,7 @@ export default function ChatScreen() {
         setShowHistory(true)
         break
       case 'settings':
+        // Implementar más tarde
         break
     }
   }
@@ -203,48 +208,38 @@ export default function ChatScreen() {
       <Sidebar />
       <KeyboardAvoidingView
         style={styles.container}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
       >
-        <FlatList
-          ref={flatListRef}
-          data={messages}
-          renderItem={({ item }) =>
-            item.isLoading ? renderLoading() : <MessageBubble message={item.text} isUser={item.isUser} />
-          }
-          keyExtractor={item => item.id}
-          contentContainerStyle={styles.contentContainer}
-          style={styles.flatListStyle}
-          showsVerticalScrollIndicator={true}
-          keyboardShouldPersistTaps="handled"
-          maintainVisibleContentPosition={{
-            minIndexForVisible: 0,
-            autoscrollToTopThreshold: 10
-          }}
-          onContentSizeChange={() => {
-            // Solo hacer scroll si hay mensajes nuevos
-            if (messages.length > 0) {
-              setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
+        <View style={styles.chatContainer}>
+          <FlatList
+            ref={flatListRef}
+            data={messages}
+            renderItem={({ item }) =>
+              item.isLoading ? renderLoading() : <MessageBubble message={item.text} isUser={item.isUser} />
             }
-          }}
-          ListEmptyComponent={() => (
-            <View style={styles.emptyState}>
-              <MaterialCommunityIcons name="scale-balance" size={64} color="#ccc" />
-              <Text style={styles.emptyText}>
-                {currentSessionId ? 'Escribe tu consulta legal' : 'Inicia una nueva conversación'}
-              </Text>
-            </View>
-          )}
-        />
+            keyExtractor={item => item.id}
+            contentContainerStyle={styles.contentContainer}
+            style={styles.flatListStyle}
+            showsVerticalScrollIndicator={true}
+            keyboardShouldPersistTaps="handled"
+            removeClippedSubviews={false}
+            onContentSizeChange={() => {
+              if (messages.length > 0) {
+                setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
+              }
+            }}
+            ListEmptyComponent={() => (
+              <View style={styles.emptyState}>
+                <MaterialCommunityIcons name="scale-balance" size={64} color="#ccc" />
+                <Text style={styles.emptyText}>
+                  {currentSessionId ? 'Escribe tu consulta legal' : 'Inicia una nueva conversación'}
+                </Text>
+              </View>
+            )}
+          />
+        </View>
         <ChatInput onSend={handleSend} style={styles.chatInput} />
-        
-        {/* Botón flotante para scroll al final */}
-        <TouchableOpacity 
-          style={styles.scrollToBottomButton}
-          onPress={() => flatListRef.current?.scrollToEnd({ animated: true })}
-        >
-          <MaterialIcons name="keyboard-arrow-down" size={24} color="#fff" />
-        </TouchableOpacity>
       </KeyboardAvoidingView>
 
       {/* Modal para historial */}
@@ -323,7 +318,10 @@ const styles = StyleSheet.create({
   },
   container: { 
     flex: 1, 
-    backgroundColor: '#FFFFFF' 
+    backgroundColor: '#FFFFFF',
+  },
+  chatContainer: {
+    flex: 1,
   },
   flatListStyle: {
     flex: 1,
@@ -331,10 +329,15 @@ const styles = StyleSheet.create({
   },
   contentContainer: { 
     paddingVertical: 16,
-    paddingBottom: 12,
-    flexGrow: 1,
+    paddingBottom: 20,
   },
-  chatInput: { marginHorizontal: 16, marginVertical: 10 },
+  chatInput: { 
+    marginHorizontal: 16, 
+    marginVertical: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#e0e0e0',
+    paddingTop: 10,
+  },
   bubble: {
     maxWidth: '75%',
     padding: 12,
@@ -369,21 +372,5 @@ const styles = StyleSheet.create({
     color: '#999',
     marginTop: 16,
     textAlign: 'center',
-  },
-  scrollToBottomButton: {
-    position: 'absolute',
-    right: 20,
-    bottom: 80,
-    backgroundColor: '#007AFF',
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
-    elevation: 5,
   },
 })

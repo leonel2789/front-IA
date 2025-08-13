@@ -24,10 +24,13 @@ export default function ChatInput({
   buttonStyle,
 }: Props) {
   const [text, setText] = useState('')
+  const isDisabled = !text.trim()
 
   const send = () => {
-    onSend(text)
-    setText('')
+    if (text.trim()) {
+      onSend(text)
+      setText('')
+    }
   }
 
   return (
@@ -39,8 +42,12 @@ export default function ChatInput({
         placeholder="Escribe un mensaje..."
         multiline
       />
-      <TouchableOpacity onPress={send} style={[styles.button, buttonStyle]}>
-        <Text style={styles.buttonText}>➤</Text>
+      <TouchableOpacity 
+        onPress={send} 
+        style={[styles.button, isDisabled && styles.buttonDisabled, buttonStyle]}
+        disabled={isDisabled}
+      >
+        <Text style={[styles.buttonText, isDisabled && styles.buttonTextDisabled]}>➤</Text>
       </TouchableOpacity>
     </View>
   )
@@ -70,9 +77,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20, 
     borderRadius: 20,
   },
+  buttonDisabled: {
+    backgroundColor: '#ccc',
+  },
   buttonText: {
     color: '#fff',
     fontSize: 16, 
     fontWeight: '600',
+  },
+  buttonTextDisabled: {
+    color: '#999',
   },
 })

@@ -1,15 +1,15 @@
 import { Platform } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 class StorageService {
   private static isWeb = Platform.OS === 'web';
-  private static memoryStorage: { [key: string]: string } = {};
 
   static async getItem(key: string): Promise<string | null> {
     try {
       if (this.isWeb && typeof localStorage !== 'undefined') {
         return localStorage.getItem(key);
       } else {
-        return this.memoryStorage[key] || null;
+        return await AsyncStorage.getItem(key);
       }
     } catch (error) {
       console.error('Error getting item from storage:', error);
@@ -22,7 +22,7 @@ class StorageService {
       if (this.isWeb && typeof localStorage !== 'undefined') {
         localStorage.setItem(key, value);
       } else {
-        this.memoryStorage[key] = value;
+        await AsyncStorage.setItem(key, value);
       }
     } catch (error) {
       console.error('Error setting item in storage:', error);
@@ -34,7 +34,7 @@ class StorageService {
       if (this.isWeb && typeof localStorage !== 'undefined') {
         localStorage.removeItem(key);
       } else {
-        delete this.memoryStorage[key];
+        await AsyncStorage.removeItem(key);
       }
     } catch (error) {
       console.error('Error removing item from storage:', error);
@@ -46,7 +46,7 @@ class StorageService {
       if (this.isWeb && typeof localStorage !== 'undefined') {
         localStorage.clear();
       } else {
-        this.memoryStorage = {};
+        await AsyncStorage.clear();
       }
     } catch (error) {
       console.error('Error clearing storage:', error);
