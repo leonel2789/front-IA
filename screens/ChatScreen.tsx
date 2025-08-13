@@ -9,11 +9,14 @@ import {
   type FlatList as RNFlatList,
   Animated,
   TouchableOpacity,
+  Modal,
 } from 'react-native'
 import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons'
 import ChatInput from '../components/ChatInput'
 import MessageBubble from '../components/MessageBubble'
-import { N8N_URL } from '../config'
+import SessionHistory from '../components/SessionHistory'
+import { N8N_URL, ChatMessage } from '../config'
+import { useSession } from '../contexts/SessionContext'
 
 type Message = { id: string; text: string; isUser: boolean; isLoading?: boolean }
 
@@ -28,8 +31,17 @@ const MENU_ITEMS = [
 export default function ChatScreen() {
   const [messages, setMessages] = useState<Message[]>([])
   const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [showHistory, setShowHistory] = useState(false)
   const flatListRef = useRef<RNFlatList<Message>>(null)
   const dotAnimations = useRef<Animated.Value[]>([]).current
+
+  const {
+    currentSessionId,
+    createNewSession,
+    switchToSession,
+    updateCurrentSession,
+    clearAllSessions,
+  } = useSession()
 
   // Inicializa animación de puntos
   if (dotAnimations.length === 0) {
@@ -48,29 +60,56 @@ export default function ChatScreen() {
   // Auto-scroll a fin del chat
   useEffect(() => {
     if (flatListRef.current && messages.length > 0) {
-      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 50)
+      const timer = setTimeout(() => {
+        flatListRef.current?.scrollToEnd({ animated: true });
+      }, 150);
+      
+      return () => clearTimeout(timer);
     }
-  }, [messages])
+  }, [messages.length]);
+
+  useEffect(() => {
+    setMessages([])
+  }, [currentSessionId])
 
   const handleSend = async (text: string) => {
     const trimmed = text.trim()
     if (!trimmed) return
 
+    let sessionId = currentSessionId
+    if (!sessionId) {
+      sessionId = await createNewSession(trimmed)
+    } else {
+      updateCurrentSession(trimmed)
+    }
+
     setMessages(prev => [...prev, { id: Date.now().toString(), text: trimmed, isUser: true }])
     setMessages(prev => [...prev, { id: 'loading-msg', text: '', isUser: false, isLoading: true }])
 
     try {
+      const payload = {
+        chatInput: trimmed,
+        message: trimmed,
+        sessionId: sessionId || 'default-session',
+      }
+
+      console.log('🚀 Enviando payload:', JSON.stringify(payload, null, 2))
+
       const response = await fetch(N8N_WEBHOOK_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: trimmed }),
+        body: JSON.stringify(payload),
       })
+      
       if (!response.ok) throw new Error(`HTTP ${response.status}`)
+      
       const data = await response.json()
       let reply = 'No pude obtener respuesta'
+      
       if (Array.isArray(data) && data[0]?.output) reply = data[0].output
       else if (typeof data === 'string') reply = data
       else if (data.output) reply = data.output
+      
       setMessages(prev => {
         const copy = [...prev]
         copy.pop()
@@ -84,6 +123,23 @@ export default function ChatScreen() {
         return [...copy, { id: `${Date.now()}-err`, text: `❌ ${msg}`, isUser: false }]
       })
     }
+  }
+
+  const handleMenuAction = async (key: string) => {
+    switch (key) {
+      case 'new':
+        await createNewSession()
+        break
+      case 'history':
+        setShowHistory(true)
+        break
+      case 'settings':
+        break
+    }
+  }
+
+  const handleSelectSession = (sessionId: string) => {
+    switchToSession(sessionId)
   }
 
   const renderLoading = () => (
@@ -115,11 +171,24 @@ export default function ChatScreen() {
             <Text style={styles.sidebarTitle}>Legal RAG</Text>
           </View>
           {MENU_ITEMS.map(item => (
-            <TouchableOpacity key={item.key} style={styles.menuItem}>
+            <TouchableOpacity 
+              key={item.key} 
+              style={styles.menuItem}
+              onPress={() => handleMenuAction(item.key)}
+            >
               <MaterialCommunityIcons name={item.icon} size={24} color="#444" />
               <Text style={styles.menuLabel}>{item.label}</Text>
             </TouchableOpacity>
           ))}
+          
+          {/* Información de sesión actual */}
+          {currentSessionId && (
+            <View style={styles.sessionInfo}>
+              <Text style={styles.sessionInfoText}>
+                Sesión: {currentSessionId.slice(0, 8)}...
+              </Text>
+            </View>
+          )}
         </>
       ) : (
         <TouchableOpacity onPress={() => setSidebarOpen(true)} style={styles.menuToggleClosed}>
@@ -145,11 +214,51 @@ export default function ChatScreen() {
           }
           keyExtractor={item => item.id}
           contentContainerStyle={styles.contentContainer}
-          onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
-          onLayout={() => flatListRef.current?.scrollToEnd({ animated: true })}
+          style={styles.flatListStyle}
+          showsVerticalScrollIndicator={true}
+          keyboardShouldPersistTaps="handled"
+          maintainVisibleContentPosition={{
+            minIndexForVisible: 0,
+            autoscrollToTopThreshold: 10
+          }}
+          onContentSizeChange={() => {
+            // Solo hacer scroll si hay mensajes nuevos
+            if (messages.length > 0) {
+              setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
+            }
+          }}
+          ListEmptyComponent={() => (
+            <View style={styles.emptyState}>
+              <MaterialCommunityIcons name="scale-balance" size={64} color="#ccc" />
+              <Text style={styles.emptyText}>
+                {currentSessionId ? 'Escribe tu consulta legal' : 'Inicia una nueva conversación'}
+              </Text>
+            </View>
+          )}
         />
         <ChatInput onSend={handleSend} style={styles.chatInput} />
+        
+        {/* Botón flotante para scroll al final */}
+        <TouchableOpacity 
+          style={styles.scrollToBottomButton}
+          onPress={() => flatListRef.current?.scrollToEnd({ animated: true })}
+        >
+          <MaterialIcons name="keyboard-arrow-down" size={24} color="#fff" />
+        </TouchableOpacity>
       </KeyboardAvoidingView>
+
+      {/* Modal para historial */}
+      <Modal
+        visible={showHistory}
+        animationType="slide"
+        presentationStyle="pageSheet"
+      >
+        <SessionHistory
+          isVisible={showHistory}
+          onClose={() => setShowHistory(false)}
+          onSelectSession={handleSelectSession}
+        />
+      </Modal>
     </View>
   )
 }
@@ -201,8 +310,30 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '500',
   },
-  container: { flex: 1, backgroundColor: '#FFFFFF' },
-  contentContainer: { padding: 16, paddingBottom: 12 },
+  sessionInfo: {
+    marginTop: 20,
+    padding: 12,
+    backgroundColor: '#e8f4fd',
+    borderRadius: 8,
+  },
+  sessionInfoText: {
+    fontSize: 12,
+    color: '#666',
+    textAlign: 'center',
+  },
+  container: { 
+    flex: 1, 
+    backgroundColor: '#FFFFFF' 
+  },
+  flatListStyle: {
+    flex: 1,
+    paddingHorizontal: 16,
+  },
+  contentContainer: { 
+    paddingVertical: 16,
+    paddingBottom: 12,
+    flexGrow: 1,
+  },
   chatInput: { marginHorizontal: 16, marginVertical: 10 },
   bubble: {
     maxWidth: '75%',
@@ -226,5 +357,33 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     backgroundColor: '#CCC',
     marginHorizontal: 4,
+  },
+  emptyState: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 60,
+  },
+  emptyText: {
+    fontSize: 16,
+    color: '#999',
+    marginTop: 16,
+    textAlign: 'center',
+  },
+  scrollToBottomButton: {
+    position: 'absolute',
+    right: 20,
+    bottom: 80,
+    backgroundColor: '#007AFF',
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5,
   },
 })
