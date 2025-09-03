@@ -17,6 +17,7 @@ import MessageBubble from '../components/MessageBubble'
 import SessionHistory from '../components/SessionHistory'
 import { N8N_URL, ChatMessage } from '../config'
 import { useSession } from '../contexts/SessionContext'
+import { useAuth } from '../contexts/AuthContext'
 
 type Message = { id: string; text: string; isUser: boolean; isLoading?: boolean }
 
@@ -26,6 +27,7 @@ const MENU_ITEMS = [
   { key: 'new', label: 'Nuevo Chat', icon: 'chat-plus-outline' },
   { key: 'history', label: 'Historial', icon: 'history' },
   { key: 'settings', label: 'Ajustes', icon: 'cog-outline' },
+  { key: 'logout', label: 'Cerrar Sesión', icon: 'logout' },
 ] as const
 
 export default function ChatScreen() {
@@ -42,6 +44,8 @@ export default function ChatScreen() {
     updateCurrentSession,
     clearAllSessions,
   } = useSession()
+
+  const { logout, user } = useAuth()
 
   // Inicializa animación de puntos
   if (dotAnimations.length === 0) {
@@ -139,6 +143,9 @@ export default function ChatScreen() {
         break
       case 'settings':
         // Implementar más tarde
+        break
+      case 'logout':
+        await logout()
         break
     }
   }
