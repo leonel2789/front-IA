@@ -15,13 +15,11 @@ import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons'
 import ChatInput from '../components/ChatInput'
 import MessageBubble from '../components/MessageBubble'
 import SessionHistory from '../components/SessionHistory'
-import { N8N_URL, ChatMessage } from '../config'
+import { N8N_URL, ChatMessage, AI_AGENTS } from '../config'
 import { useSession } from '../contexts/SessionContext'
 import { useAuth } from '../contexts/AuthContext'
 
 type Message = { id: string; text: string; isUser: boolean; isLoading?: boolean }
-
-const N8N_WEBHOOK_URL = N8N_URL
 
 const MENU_ITEMS = [
   { key: 'new', label: 'Nuevo Chat', icon: 'chat-plus-outline' },
@@ -36,6 +34,7 @@ export default function ChatScreen() {
   const [showHistory, setShowHistory] = useState(false)
   const flatListRef = useRef<RNFlatList<Message>>(null)
   const dotAnimations = useRef<Animated.Value[]>([]).current
+  const statusPulse = useRef(new Animated.Value(1)).current
 
   const {
     currentSessionId,
@@ -45,7 +44,15 @@ export default function ChatScreen() {
     clearAllSessions,
   } = useSession()
 
-  const { logout, user } = useAuth()
+  const { logout, user, currentWebhookUrl, userRoles } = useAuth()
+
+  // Obtener información del agente actual
+  const getCurrentAgent = () => {
+    const currentRole = userRoles[0] || 'ia-general'
+    return AI_AGENTS[currentRole]
+  }
+
+  const currentAgent = getCurrentAgent()
 
   // Inicializa animación de puntos
   if (dotAnimations.length === 0) {
@@ -59,6 +66,14 @@ export default function ChatScreen() {
         ])
       ).start()
     }
+
+    // Inicializa animación de pulso para el badge "ACTIVO"
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(statusPulse, { toValue: 0.8, duration: 1000, useNativeDriver: true }),
+        Animated.timing(statusPulse, { toValue: 1, duration: 1000, useNativeDriver: true }),
+      ])
+    ).start()
   }
 
   // Auto-scroll a fin del chat
@@ -102,8 +117,10 @@ export default function ChatScreen() {
       }
 
       console.log('🚀 Enviando payload:', JSON.stringify(payload, null, 2))
+      console.log('🎯 Webhook URL:', currentWebhookUrl)
+      console.log('👤 Roles del usuario:', userRoles)
 
-      const response = await fetch(N8N_WEBHOOK_URL, {
+      const response = await fetch(currentWebhookUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -193,6 +210,27 @@ export default function ChatScreen() {
             </TouchableOpacity>
           ))}
           
+          {/* Información del usuario y IA activa */}
+          <View style={[styles.userInfo, { backgroundColor: currentAgent.lightColor, borderLeftColor: currentAgent.borderColor }]}>
+            <View style={styles.agentHeader}>
+              <MaterialCommunityIcons name={currentAgent.icon} size={20} color={currentAgent.color} />
+              <Text style={[styles.agentName, { color: currentAgent.color }]}>
+                {currentAgent.shortName}
+              </Text>
+            </View>
+            <Text style={styles.agentDescription}>
+              {currentAgent.description}
+            </Text>
+            <Text style={styles.userInfoTitle}>
+              👤 {user?.preferred_username || 'Usuario'}
+            </Text>
+            {userRoles.length > 1 && (
+              <Text style={styles.userInfoTextSecondary}>
+                Otros roles: {userRoles.slice(1).map(r => AI_AGENTS[r]?.shortName || r).join(', ')}
+              </Text>
+            )}
+          </View>
+
           {/* Información de sesión actual */}
           {currentSessionId && (
             <View style={styles.sessionInfo}>
@@ -218,6 +256,32 @@ export default function ChatScreen() {
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
       >
+        {/* Cabecera con información del agente */}
+        <View style={[styles.agentBanner, { backgroundColor: currentAgent.lightColor, borderBottomColor: currentAgent.borderColor }]}>
+          <View style={styles.agentBannerContent}>
+            <MaterialCommunityIcons name={currentAgent.icon} size={24} color={currentAgent.color} />
+            <View style={styles.agentBannerText}>
+              <Text style={[styles.agentBannerTitle, { color: currentAgent.color }]}>
+                {currentAgent.name}
+              </Text>
+              <Text style={styles.agentBannerSubtitle}>
+                {currentAgent.description}
+              </Text>
+            </View>
+            <Animated.View 
+              style={[
+                styles.agentStatusBadge, 
+                { 
+                  backgroundColor: currentAgent.color,
+                  transform: [{ scale: statusPulse }]
+                }
+              ]}
+            >
+              <Text style={styles.agentStatusText}>ACTIVO</Text>
+            </Animated.View>
+          </View>
+        </View>
+
         <View style={styles.chatContainer}>
           <FlatList
             ref={flatListRef}
@@ -238,9 +302,12 @@ export default function ChatScreen() {
             }}
             ListEmptyComponent={() => (
               <View style={styles.emptyState}>
-                <MaterialCommunityIcons name="scale-balance" size={64} color="#ccc" />
-                <Text style={styles.emptyText}>
-                  {currentSessionId ? 'Escribe tu consulta legal' : 'Inicia una nueva conversación'}
+                <MaterialCommunityIcons name={currentAgent.icon} size={64} color={currentAgent.color} />
+                <Text style={[styles.emptyText, { color: currentAgent.color }]}>
+                  {currentSessionId ? `Consulta tu especialista en ${currentAgent.shortName}` : `Inicia una conversación con ${currentAgent.name}`}
+                </Text>
+                <Text style={styles.emptySubtext}>
+                  {currentAgent.description}
                 </Text>
               </View>
             )}
@@ -312,14 +379,52 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '500',
   },
-  sessionInfo: {
+  userInfo: {
     marginTop: 20,
-    padding: 12,
+    padding: 14,
+    borderRadius: 10,
+    borderLeftWidth: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  agentHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  agentName: {
+    fontSize: 16,
+    fontWeight: '700',
+    marginLeft: 8,
+  },
+  agentDescription: {
+    fontSize: 12,
+    color: '#666',
+    marginBottom: 10,
+    lineHeight: 16,
+  },
+  userInfoTitle: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 4,
+  },
+  userInfoTextSecondary: {
+    fontSize: 11,
+    color: '#666',
+    marginTop: 4,
+  },
+  sessionInfo: {
+    marginTop: 12,
+    padding: 8,
     backgroundColor: '#e8f4fd',
-    borderRadius: 8,
+    borderRadius: 6,
   },
   sessionInfoText: {
-    fontSize: 12,
+    fontSize: 11,
     color: '#666',
     textAlign: 'center',
   },
@@ -375,9 +480,61 @@ const styles = StyleSheet.create({
     paddingVertical: 60,
   },
   emptyText: {
-    fontSize: 16,
-    color: '#999',
+    fontSize: 18,
+    fontWeight: '600',
     marginTop: 16,
     textAlign: 'center',
+  },
+  emptySubtext: {
+    fontSize: 14,
+    color: '#666',
+    marginTop: 8,
+    textAlign: 'center',
+    paddingHorizontal: 20,
+    lineHeight: 20,
+  },
+  agentBanner: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  agentBannerContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  agentBannerText: {
+    flex: 1,
+    marginLeft: 12,
+  },
+  agentBannerTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    marginBottom: 2,
+  },
+  agentBannerSubtitle: {
+    fontSize: 13,
+    color: '#666',
+    lineHeight: 18,
+  },
+  agentStatusBadge: {
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  agentStatusText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.5,
   },
 })

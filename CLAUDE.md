@@ -2,18 +2,18 @@
 
 ## Resumen del Proyecto
 - **Frontend**: React Native con Expo (front-IA)
-- **Autenticación**: Keycloak (keycloak-IALegal) 
-- **Arquitectura**: App móvil con login únicamente
+- **Autenticaciï¿½n**: Keycloak (keycloak-IALegal) 
+- **Arquitectura**: App mï¿½vil con login ï¿½nicamente
 
-## Integración de Keycloak Completada 
+## Integraciï¿½n de Keycloak Completada 
 
 ### 1. Frontend (front-IA)
 - **Dependencias instaladas**: expo-auth-session, expo-web-browser, expo-crypto, @react-native-async-storage/async-storage
 - **AuthProvider**: contexts/AuthContext.tsx - Manejo completo OAuth2/OpenID Connect
-- **LoginScreen**: components/LoginScreen.tsx - Pantalla de login con diseño atractivo
-- **Configuración**: config.ts actualizado con KEYCLOAK_CONFIG
-- **Integración**: AuthProvider envolviendo la app, control de acceso en index.tsx
-- **Logout**: Botón agregado al menú del chat
+- **LoginScreen**: components/LoginScreen.tsx - Pantalla de login con diseï¿½o atractivo
+- **Configuraciï¿½n**: config.ts actualizado con KEYCLOAK_CONFIG
+- **Integraciï¿½n**: AuthProvider envolviendo la app, control de acceso en index.tsx
+- **Logout**: Botï¿½n agregado al menï¿½ del chat
 
 ### 2. Keycloak Server (keycloak-IALegal)
 - **Docker Compose**: PostgreSQL + Keycloak 23.0.3
@@ -24,7 +24,7 @@
   - testuser/test123 (ia-user)
 - **Scripts**: start.sh, stop.sh, reset.sh, backup.sh
 
-### Configuración Clave
+### Configuraciï¿½n Clave
 ```typescript
 export const KEYCLOAK_CONFIG = {
   url: process.env.EXPO_PUBLIC_KEYCLOAK_URL || 'http://localhost:8080',
@@ -46,13 +46,78 @@ cd keycloak-IALegal
 
 ### Estado Actual
 -  Keycloak configurado completamente
--  Frontend integrado con autenticación
+-  Frontend integrado con autenticaciï¿½n
 -  Solo funcionalidad de login implementada
--  Scripts de administración creados
--  Documentación completa
+-  Scripts de administraciï¿½n creados
+-  Documentaciï¿½n completa
 
-### Próximos Pasos Potenciales
-- Configurar SSL/TLS para producción
+### Prï¿½ximos Pasos Potenciales
+- Configurar SSL/TLS para producciï¿½n
 - Personalizar temas de Keycloak
 - Configurar proveedores externos (Google, Facebook)
-- Implementar roles más granulares
+- Implementar roles mÃ¡s granulares
+
+## Sistema de Roles por CategorÃ­as de IA (ACTUALIZACIÃ“N)
+
+### Roles Configurados
+- **ia-contratos**: IA especializada en contratos legales
+- **ia-laboral**: IA especializada en derecho laboral  
+- **ia-defensa-consumidor**: IA especializada en defensa del consumidor
+- **ia-general**: IA general para consultas legales (por defecto)
+
+### Mapeo de Webhooks N8N
+```typescript
+{
+  'ia-contratos': 'https://legalcontratos.nilosolutions.com/webhook-test/66c6b4ae-eae4-411c-ad4f-64a359ec245f',
+  'ia-laboral': 'https://legallaboral.nilosolutions.com/webhook-test/66c6b4ae-eae4-411c-ad4f-64a359ec245f',
+  'ia-defensa-consumidor': 'https://legaldefensadelconsumidor.nilosolutions.com/webhook-test/66c6b4ae-eae4-411c-ad4f-64a359ec245f',
+  'ia-general': 'https://legalbackn8n.nilosolutions.com/webhook/66c6b4ae-eae4-411c-ad4f-64a359ec245f'
+}
+```
+
+### ConfiguraciÃ³n de Roles en Keycloak
+
+#### 1. Crear Roles en el Realm
+1. Acceder a Admin Console: http://localhost:8080/admin
+2. Ir a Realm "ia-legal" â†’ Realm roles
+3. Crear los siguientes roles:
+   - `ia-contratos`
+   - `ia-laboral`
+   - `ia-defensa-consumidor`
+   - `ia-general`
+
+#### 2. Asignar Roles a Usuarios
+1. Ir a Users â†’ Seleccionar usuario
+2. Tab "Role mappings"
+3. Asignar el rol correspondiente segÃºn la especialidad del usuario
+
+### Funcionamiento AutomÃ¡tico
+1. **Login**: Usuario se autentica con Keycloak
+2. **ExtracciÃ³n de Roles**: El frontend extrae roles del JWT token
+3. **SelecciÃ³n de Webhook**: Se selecciona automÃ¡ticamente el webhook segÃºn el primer rol del usuario
+4. **Interfaz Personalizada**: MÃºltiples indicadores visuales del agente activo
+
+### Indicadores Visuales del Agente Activo
+
+#### 1. Cabecera Principal
+- **Banner prominente** con informaciÃ³n del agente
+- **Colores personalizados** por tipo de agente
+- **Badge "ACTIVO"** con animaciÃ³n de pulso
+- **Icono representativo** de cada especialidad
+
+#### 2. Barra Lateral
+- **InformaciÃ³n detallada** del agente y usuario
+- **DescripciÃ³n completa** de la especialidad
+- **Roles adicionales** si el usuario tiene mÃºltiples permisos
+- **Colores temÃ¡ticos** coherentes con el agente
+
+#### 3. Estado VacÃ­o
+- **Mensaje personalizado** segÃºn el agente activo
+- **InvitaciÃ³n contextual** para consultar al especialista
+- **IconografÃ­a especÃ­fica** de cada Ã¡rea legal
+
+#### 4. Colores por Agente
+- **IA Contratos**: Verde (Documentos/Contratos)
+- **IA Laboral**: Azul (Trabajo/Profesional) 
+- **IA Defensa Consumidor**: Naranja (ProtecciÃ³n/Alerta)
+- **IA General**: Violeta (Justicia/Legal)

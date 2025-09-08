@@ -2,17 +2,21 @@ import React, { createContext, useContext, useState, useEffect, ReactNode } from
 import * as AuthSession from 'expo-auth-session';
 import * as WebBrowser from 'expo-web-browser';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { KEYCLOAK_CONFIG } from '../config';
+import { KEYCLOAK_CONFIG, N8N_WEBHOOKS, UserRole, AVAILABLE_ROLES } from '../config';
 
 WebBrowser.maybeCompleteAuthSession();
 
 interface AuthContextType {
   isAuthenticated: boolean;
   user: any | null;
+  userRoles: UserRole[];
+  currentWebhookUrl: string;
   loading: boolean;
   login: () => Promise<void>;
   logout: () => Promise<void>;
   getAccessToken: () => Promise<string | null>;
+  getUserRoles: () => UserRole[];
+  getWebhookForRole: (role?: UserRole) => string;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -24,6 +28,8 @@ interface AuthProviderProps {
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [user, setUser] = useState<any | null>(null);
+  const [userRoles, setUserRoles] = useState<UserRole[]>([]);
+  const [currentWebhookUrl, setCurrentWebhookUrl] = useState<string>(N8N_WEBHOOKS['ia-general']);
   const [loading, setLoading] = useState(true);
 
   const redirectUri = AuthSession.makeRedirectUri({
@@ -64,13 +70,63 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
   }, [response]);
 
+  const extractRolesFromToken = (accessToken: string): UserRole[] => {
+    try {
+      // Decodificar el JWT (solo la parte del payload)
+      const payload = accessToken.split('.')[1];
+      const decodedPayload = JSON.parse(atob(payload));
+      
+      // Extraer roles del realm y del cliente
+      const realmRoles = decodedPayload.realm_access?.roles || [];
+      const clientRoles = decodedPayload.resource_access?.[KEYCLOAK_CONFIG.clientId]?.roles || [];
+      
+      // Combinar todos los roles y filtrar solo los que nos interesan
+      const allRoles = [...realmRoles, ...clientRoles];
+      const validRoles = allRoles.filter((role: string) => 
+        AVAILABLE_ROLES.includes(role as UserRole)
+      ) as UserRole[];
+      
+      return validRoles;
+    } catch (error) {
+      console.error('Error extracting roles from token:', error);
+      return ['ia-general']; // Rol por defecto si hay error
+    }
+  };
+
+  const getUserRoles = (): UserRole[] => {
+    return userRoles;
+  };
+
+  const getWebhookForRole = (role?: UserRole): string => {
+    if (role && N8N_WEBHOOKS[role]) {
+      return N8N_WEBHOOKS[role];
+    }
+    
+    // Si no se especifica rol o no existe, usar el primer rol del usuario
+    if (userRoles.length > 0) {
+      return N8N_WEBHOOKS[userRoles[0]] || N8N_WEBHOOKS['ia-general'];
+    }
+    
+    return N8N_WEBHOOKS['ia-general'];
+  };
+
   const initializeAuth = async () => {
     try {
       const token = await AsyncStorage.getItem('access_token');
       if (token) {
         const userInfo = await AsyncStorage.getItem('user_info');
         if (userInfo) {
-          setUser(JSON.parse(userInfo));
+          const parsedUser = JSON.parse(userInfo);
+          setUser(parsedUser);
+          
+          // Extraer roles del token
+          const roles = extractRolesFromToken(token);
+          setUserRoles(roles);
+          
+          // Configurar webhook basado en el primer rol
+          const webhookUrl = getWebhookForRole(roles[0]);
+          setCurrentWebhookUrl(webhookUrl);
+          
           setIsAuthenticated(true);
         }
       }
@@ -126,6 +182,14 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           const userInfo = await userInfoResponse.json();
           await AsyncStorage.setItem('user_info', JSON.stringify(userInfo));
           
+          // Extraer roles del token
+          const roles = extractRolesFromToken(tokens.access_token);
+          setUserRoles(roles);
+          
+          // Configurar webhook basado en el primer rol
+          const webhookUrl = getWebhookForRole(roles[0]);
+          setCurrentWebhookUrl(webhookUrl);
+          
           setUser(userInfo);
           setIsAuthenticated(true);
         }
@@ -170,6 +234,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       // Limpiar datos locales
       await AsyncStorage.multiRemove(['access_token', 'refresh_token', 'user_info']);
       setUser(null);
+      setUserRoles([]);
+      setCurrentWebhookUrl(N8N_WEBHOOKS['ia-general']);
       setIsAuthenticated(false);
     } catch (error) {
       console.error('Logout error:', error);
@@ -188,10 +254,14 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const value: AuthContextType = {
     isAuthenticated,
     user,
+    userRoles,
+    currentWebhookUrl,
     loading,
     login,
     logout,
     getAccessToken,
+    getUserRoles,
+    getWebhookForRole,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
