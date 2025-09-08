@@ -1,8 +1,8 @@
 // Mapeo de roles a webhooks de N8N
 export const N8N_WEBHOOKS = {
-  'ia-contratos': process.env.EXPO_PUBLIC_N8N_CONTRATOS_URL || 'https://legalcontratos.nilosolutions.com/webhook-test/66c6b4ae-eae4-411c-ad4f-64a359ec245f',
-  'ia-laboral': process.env.EXPO_PUBLIC_N8N_LABORAL_URL || 'https://legallaboral.nilosolutions.com/webhook-test/66c6b4ae-eae4-411c-ad4f-64a359ec245f',
-  'ia-defensa-consumidor': process.env.EXPO_PUBLIC_N8N_DEFENSA_URL || 'https://legaldefensadelconsumidor.nilosolutions.com/webhook-test/66c6b4ae-eae4-411c-ad4f-64a359ec245f',
+  'ia-contratos': process.env.EXPO_PUBLIC_N8N_CONTRATOS_URL || 'https://legalcontratos.nilosolutions.com/webhook/66c6b4ae-eae4-411c-ad4f-64a359ec245f',
+  'ia-laboral': process.env.EXPO_PUBLIC_N8N_LABORAL_URL || 'https://legallaboral.nilosolutions.com/webhook/66c6b4ae-eae4-411c-ad4f-64a359ec245f',
+  'ia-defensa-consumidor': process.env.EXPO_PUBLIC_N8N_DEFENSA_URL || 'https://legaldefensadelconsumidor.nilosolutions.com/webhook/66c6b4ae-eae4-411c-ad4f-64a359ec245f',
   'ia-general': process.env.EXPO_PUBLIC_N8N_GENERAL_URL || 'https://legalbackn8n.nilosolutions.com/webhook/66c6b4ae-eae4-411c-ad4f-64a359ec245f'
 };
 
