@@ -15,6 +15,7 @@ import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons'
 import ChatInput from '../components/ChatInput'
 import MessageBubble from '../components/MessageBubble'
 import SessionHistory from '../components/SessionHistory'
+import FileUploader from '../components/FileUploader'
 import { N8N_URL, ChatMessage, AI_AGENTS } from '../config'
 import { useSession } from '../contexts/SessionContext'
 import { useAuth } from '../contexts/AuthContext'
@@ -23,6 +24,7 @@ type Message = { id: string; text: string; isUser: boolean; isLoading?: boolean 
 
 const MENU_ITEMS = [
   { key: 'new', label: 'Nuevo Chat', icon: 'chat-plus-outline' },
+  { key: 'upload', label: 'Subir Archivos', icon: 'cloud-upload-outline' },
   { key: 'history', label: 'Historial', icon: 'history' },
   { key: 'settings', label: 'Ajustes', icon: 'cog-outline' },
   { key: 'logout', label: 'Cerrar Sesión', icon: 'logout' },
@@ -32,6 +34,7 @@ export default function ChatScreen() {
   const [messages, setMessages] = useState<Message[]>([])
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [showHistory, setShowHistory] = useState(false)
+  const [showFileUploader, setShowFileUploader] = useState(false)
   const flatListRef = useRef<RNFlatList<Message>>(null)
   const dotAnimations = useRef<Animated.Value[]>([]).current
   const statusPulse = useRef(new Animated.Value(1)).current
@@ -154,6 +157,9 @@ export default function ChatScreen() {
     switch (key) {
       case 'new':
         await createNewSession()
+        break
+      case 'upload':
+        setShowFileUploader(true)
         break
       case 'history':
         setShowHistory(true)
@@ -328,6 +334,12 @@ export default function ChatScreen() {
           onSelectSession={handleSelectSession}
         />
       </Modal>
+
+      {/* Modal para subir archivos */}
+      <FileUploader
+        visible={showFileUploader}
+        onClose={() => setShowFileUploader(false)}
+      />
     </View>
   )
 }

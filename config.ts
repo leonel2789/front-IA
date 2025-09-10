@@ -71,3 +71,30 @@ export interface ChatMessage {
   message: string;
   sessionId?: string;
 }
+
+// Configuración de Google Drive
+export const GOOGLE_DRIVE_CONFIG = {
+  apiKey: process.env.EXPO_PUBLIC_GOOGLE_API_KEY,
+  clientId: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID,
+  clientSecret: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_SECRET,
+  scopes: [
+    'https://www.googleapis.com/auth/drive.file',
+    'https://www.googleapis.com/auth/drive.readonly'
+  ]
+};
+
+// Mapeo de agentes a carpetas de Google Drive
+export const GOOGLE_DRIVE_FOLDERS = {
+  'ia-contratos': process.env.EXPO_PUBLIC_GD_CONTRATOS_FOLDER_ID || '1VrlFNS-DmGW9AnKZeBqgii8vDcFdi-dB',
+  'ia-laboral': process.env.EXPO_PUBLIC_GD_LABORAL_FOLDER_ID || '1VrlFNS-DmGW9AnKZeBqgii8vDcFdi-dB', 
+  'ia-defensa-consumidor': process.env.EXPO_PUBLIC_GD_DEFENSA_FOLDER_ID || '1VrlFNS-DmGW9AnKZeBqgii8vDcFdi-dB',
+  'ia-general': process.env.EXPO_PUBLIC_GD_GENERAL_FOLDER_ID || '1VrlFNS-DmGW9AnKZeBqgii8vDcFdi-dB'
+} as const;
+
+// Subfolder names for "no procesados"
+export const AGENT_SUBFOLDER_NAMES = {
+  'ia-contratos': 'contratos no procesados',
+  'ia-laboral': 'laboral no procesados',
+  'ia-defensa-consumidor': 'defensaconsumidor no procesados',
+  'ia-general': 'general no procesados'
+} as const;
