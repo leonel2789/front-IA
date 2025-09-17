@@ -159,23 +159,12 @@ class GoogleDriveService {
     try {
       // First, try to find existing folder
       const searchUrl = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(`name='${folderName}' and parents in '${parentId}' and mimeType='application/vnd.google-apps.folder' and trashed=false`)}&fields=files(id,name)`;
-
+      
       const response = await fetch(searchUrl, {
         headers: {
           'Authorization': `Bearer ${this.accessToken}`,
         },
       });
-
-      if (response.status === 401) {
-        // Token expired, try to refresh
-        const refreshSuccess = await this.refreshToken();
-        if (refreshSuccess) {
-          // Retry with new token
-          return this.findOrCreateFolder(parentId, folderName);
-        } else {
-          throw new Error('Authentication failed - please log in again');
-        }
-      }
 
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
@@ -201,26 +190,15 @@ class GoogleDriveService {
         }),
       });
 
-      if (createResponse.status === 401) {
-        // Token expired, try to refresh
-        const refreshSuccess = await this.refreshToken();
-        if (refreshSuccess) {
-          // Retry with new token
-          return this.findOrCreateFolder(parentId, folderName);
-        } else {
-          throw new Error('Authentication failed - please log in again');
-        }
-      }
-
       if (!createResponse.ok) {
         throw new Error(`HTTP error! status: ${createResponse.status}`);
       }
 
       const createData = await createResponse.json();
       return createData.id;
-    } catch (error: any) {
+    } catch (error) {
       console.error(`Error finding/creating folder ${folderName}:`, error);
-      throw error; // Re-throw to handle it in the calling method
+      return null;
     }
   }
 
@@ -228,24 +206,20 @@ class GoogleDriveService {
     try {
       // Get the configured folder ID for this specific agent
       const configuredFolderId = GOOGLE_DRIVE_FOLDERS[agentRole];
-
+      
       // If the folder ID is the default placeholder, skip this agent
       if (!configuredFolderId || configuredFolderId === 'your_general_folder_id_here' || configuredFolderId === '1VrlFNS-DmGW9AnKZeBqgii8vDcFdi-dB') {
         throw new Error(`Folder ID not configured for agent: ${agentRole}`);
       }
-
+      
       // Since you already have agent-specific folder IDs configured,
       // we directly create the "no procesados" subfolder inside them
       const subfolderName = AGENT_SUBFOLDER_NAMES[agentRole];
       const targetFolderId = await this.findOrCreateFolder(configuredFolderId, subfolderName);
-
+      
       return targetFolderId;
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error getting target folder ID:', error);
-      // Re-throw authentication errors to be handled at a higher level
-      if (error.message && error.message.includes('Authentication failed')) {
-        throw error;
-      }
       return null;
     }
   }
@@ -326,17 +300,6 @@ class GoogleDriveService {
         body: body,
       });
 
-      if (response.status === 401) {
-        // Token expired, try to refresh
-        const refreshSuccess = await this.refreshToken();
-        if (refreshSuccess) {
-          // Retry upload once with new token
-          return this.uploadFile({ fileUri, fileName, mimeType, agentRole });
-        } else {
-          throw new Error('Authentication failed - please log in again');
-        }
-      }
-
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
@@ -345,14 +308,16 @@ class GoogleDriveService {
       return !!data.id;
     } catch (error: any) {
       console.error('Error uploading file to Google Drive:', error);
-
-      // Check if it's an authentication error that needs user action
-      if (error.message && error.message.includes('Authentication failed')) {
-        // Clear stored tokens and force re-authentication
-        await this.logout();
-        throw new Error('Session expired. Please log in again to continue uploading files.');
+      
+      // Try to refresh token if it's an auth error
+      if (error.status === 401) {
+        const refreshSuccess = await this.refreshToken();
+        if (refreshSuccess) {
+          // Retry upload once
+          return this.uploadFile({ fileUri, fileName, mimeType, agentRole });
+        }
       }
-
+      
       throw error;
     }
   }
