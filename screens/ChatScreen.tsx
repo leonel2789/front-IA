@@ -41,6 +41,7 @@ export default function ChatScreen() {
 
   const {
     currentSessionId,
+    currentMessages,
     createNewSession,
     switchToSession,
     updateCurrentSession,
@@ -85,31 +86,49 @@ export default function ChatScreen() {
       // Pequeño delay para asegurar que el contenido se haya renderizado
       const timer = setTimeout(() => {
         flatListRef.current?.scrollToEnd({ animated: true });
-      }, 150);
-      
+      }, 100);
+
       return () => clearTimeout(timer);
     }
-  }, [messages.length]); // Solo cuando cambia la cantidad de mensajes
+  }, [messages]); // Cuando cambian los mensajes (incluye contenido y cantidad)
 
-  // Limpiar mensajes cuando cambia la sesión
+  // Cargar mensajes cuando cambia la sesión
   useEffect(() => {
-    setMessages([])
-  }, [currentSessionId])
+    // Solo sobrescribir si no hay mensajes pendientes (como loading)
+    const hasLoadingMessage = messages.some(msg => msg.isLoading)
+
+    if (!hasLoadingMessage) {
+      if (currentMessages.length > 0) {
+        // Convertir mensajes de la sesión a formato del componente
+        const convertedMessages: Message[] = currentMessages.map(msg => ({
+          id: msg.id,
+          text: msg.text,
+          isUser: msg.isUser,
+        }));
+        setMessages(convertedMessages);
+      } else {
+        setMessages([]);
+      }
+    }
+  }, [currentMessages, currentSessionId])
 
   const handleSend = async (text: string) => {
     const trimmed = text.trim()
     if (!trimmed) return
+
+    // Agregar mensaje del usuario inmediatamente al estado local
+    const userMessage = { id: Date.now().toString(), text: trimmed, isUser: true }
+    const loadingMessage = { id: 'loading-msg', text: '', isUser: false, isLoading: true }
+
+    setMessages(prev => [...prev, userMessage, loadingMessage])
 
     // Si no hay sesión actual, crear una nueva
     let sessionId = currentSessionId
     if (!sessionId) {
       sessionId = await createNewSession(trimmed)
     } else {
-      updateCurrentSession(trimmed)
+      await updateCurrentSession(trimmed, true) // true = es mensaje del usuario
     }
-
-    setMessages(prev => [...prev, { id: Date.now().toString(), text: trimmed, isUser: true }])
-    setMessages(prev => [...prev, { id: 'loading-msg', text: '', isUser: false, isLoading: true }])
 
     try {
       // Enviar en formato plano que n8n puede usar directamente
@@ -119,30 +138,31 @@ export default function ChatScreen() {
         sessionId: sessionId || 'default-session', // Para el Chat Memory
       }
 
-      console.log('🚀 Enviando payload:', JSON.stringify(payload, null, 2))
-      console.log('🎯 Webhook URL:', currentWebhookUrl)
-      console.log('👤 Roles del usuario:', userRoles)
-
       const response = await fetch(currentWebhookUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       })
-      
+
       if (!response.ok) throw new Error(`HTTP ${response.status}`)
-      
+
       const data = await response.json()
       let reply = 'No pude obtener respuesta'
-      
+
       if (Array.isArray(data) && data[0]?.output) reply = data[0].output
       else if (typeof data === 'string') reply = data
       else if (data.output) reply = data.output
-      
+
       setMessages(prev => {
         const copy = [...prev]
         copy.pop()
         return [...copy, { id: `${Date.now()}-bot`, text: reply, isUser: false }]
       })
+
+      // Guardar la respuesta de la IA en la base de datos
+      if (sessionId) {
+        await updateCurrentSession(reply, false) // false = es respuesta de la IA
+      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Error desconocido'
       setMessages(prev => {
@@ -296,16 +316,32 @@ export default function ChatScreen() {
               item.isLoading ? renderLoading() : <MessageBubble message={item.text} isUser={item.isUser} />
             }
             keyExtractor={item => item.id}
-            contentContainerStyle={styles.contentContainer}
+            contentContainerStyle={[
+              styles.contentContainer,
+              messages.length === 0 && { flex: 1 } // Solo usar flex cuando está vacío
+            ]}
             style={styles.flatListStyle}
             showsVerticalScrollIndicator={true}
             keyboardShouldPersistTaps="handled"
-            removeClippedSubviews={false}
+            removeClippedSubviews={false} // Asegurar que no se quiten elementos del DOM
             onContentSizeChange={() => {
               if (messages.length > 0) {
                 setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
               }
             }}
+            onLayout={() => {
+              // Scroll al final cuando el componente se monta
+              if (messages.length > 0) {
+                setTimeout(() => flatListRef.current?.scrollToEnd({ animated: false }), 200);
+              }
+            }}
+            initialNumToRender={100} // Renderizar muchos más mensajes inicialmente
+            maxToRenderPerBatch={50} // Renderizar más mensajes por lote
+            windowSize={50} // Ventana mucho más grande para mantener mensajes en memoria
+            scrollEnabled={true}
+            nestedScrollEnabled={true}
+            updateCellsBatchingPeriod={50} // Actualizar más frecuentemente
+            legacyImplementation={false} // Usar la implementación moderna
             ListEmptyComponent={() => (
               <View style={styles.emptyState}>
                 <MaterialCommunityIcons name={currentAgent.icon} size={64} color={currentAgent.color} />
@@ -446,14 +482,15 @@ const styles = StyleSheet.create({
   },
   chatContainer: {
     flex: 1,
+    overflow: 'hidden',
   },
   flatListStyle: {
     flex: 1,
     paddingHorizontal: 16,
   },
-  contentContainer: { 
+  contentContainer: {
     paddingVertical: 16,
-    paddingBottom: 20,
+    paddingBottom: 120, // Más espacio para evitar que se corten los mensajes
   },
   chatInput: { 
     marginHorizontal: 16, 

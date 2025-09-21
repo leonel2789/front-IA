@@ -8,6 +8,7 @@ import {
   StyleSheet,
   ViewStyle,
   TextStyle,
+  Platform,
 } from 'react-native'
 
 interface Props {
@@ -33,14 +34,25 @@ export default function ChatInput({
     }
   }
 
+  const handleKeyPress = (event: any) => {
+    if (Platform.OS === 'web' && event.nativeEvent.key === 'Enter' && !event.nativeEvent.shiftKey) {
+      event.preventDefault()
+      send()
+    }
+  }
+
   return (
     <View style={[styles.container, style]}>
       <TextInput
         style={[styles.input, inputStyle]}
         value={text}
         onChangeText={setText}
-        placeholder="Escribe un mensaje..."
+        onKeyPress={handleKeyPress}
+        placeholder="Escribe un mensaje... (Enter para enviar)"
         multiline
+        returnKeyType="send"
+        blurOnSubmit={false}
+        onSubmitEditing={send}
       />
       <TouchableOpacity 
         onPress={send} 

@@ -1,5 +1,6 @@
 import * as Crypto from 'expo-crypto';
 import StorageService from './StorageService';
+import DatabaseService, { ChatSession as DBChatSession, ChatHistoryRecord } from './DatabaseService';
 
 export interface ChatSession {
   id: string;
@@ -9,14 +10,21 @@ export interface ChatSession {
   messageCount: number;
 }
 
+export interface ChatMessage {
+  id: string;
+  text: string;
+  isUser: boolean;
+  timestamp: Date;
+}
+
 export default class SessionService {
   private static readonly SESSIONS_KEY = 'chat_sessions';
   private static readonly CURRENT_SESSION_KEY = 'current_session_id';
+  private static readonly USE_DATABASE = process.env.EXPO_PUBLIC_USE_DATABASE === 'true';
 
   // Generar un ID único para la sesión
-  static async generateSessionId(): Promise<string> {
-    const uuid = Crypto.randomUUID();
-    return uuid;
+  static async generateSessionId(userId: string, agentType: string): Promise<string> {
+    return `${userId}_${agentType}_${Date.now()}_${Crypto.randomUUID().slice(0, 8)}`;
   }
 
   // Obtener la sesión actual
@@ -39,11 +47,34 @@ export default class SessionService {
   }
 
   // Crear una nueva sesión
-  static async createNewSession(firstMessage?: string): Promise<string> {
-    const sessionId = await this.generateSessionId();
+  static async createNewSession(
+    userId: string, 
+    agentType: string, 
+    firstMessage?: string
+  ): Promise<string> {
+    const sessionId = await this.generateSessionId(userId, agentType);
+    const sessionName = firstMessage ? this.generateSessionName(firstMessage) : 'Nueva conversación';
+
+    if (this.USE_DATABASE) {
+      // Crear sesión en PostgreSQL
+      try {
+        await DatabaseService.createChatSession(userId, agentType, sessionName);
+        await this.setCurrentSessionId(sessionId);
+        
+        // Limpiar sesiones antiguas (mantener solo 30)
+        await DatabaseService.cleanupOldSessions(userId, agentType);
+        
+        return sessionId;
+      } catch (error) {
+        console.error('Error creating session in database:', error);
+        // Fallback to local storage
+      }
+    }
+
+    // Fallback: usar almacenamiento local
     const session: ChatSession = {
       id: sessionId,
-      name: firstMessage ? this.generateSessionName(firstMessage) : 'Nueva conversación',
+      name: sessionName,
       createdAt: new Date(),
       lastMessage: firstMessage || '',
       messageCount: firstMessage ? 1 : 0,
@@ -79,7 +110,18 @@ export default class SessionService {
   }
 
   // Obtener todas las sesiones
-  static async getAllSessions(): Promise<ChatSession[]> {
+  static async getAllSessions(userId: string, agentType: string): Promise<ChatSession[]> {
+    if (this.USE_DATABASE) {
+      try {
+        const dbSessions = await DatabaseService.getUserSessions(userId, agentType);
+        return dbSessions.map(this.convertDBSessionToLocal);
+      } catch (error) {
+        console.error('Error getting sessions from database:', error);
+        // Fallback to local storage
+      }
+    }
+
+    // Fallback: almacenamiento local
     try {
       const stored = await StorageService.getItem(this.SESSIONS_KEY);
       if (!stored) return [];
@@ -95,9 +137,37 @@ export default class SessionService {
     }
   }
 
+  // Convertir sesión de base de datos a formato local
+  private static convertDBSessionToLocal(dbSession: DBChatSession): ChatSession {
+    return {
+      id: dbSession.session_id,
+      name: dbSession.session_name,
+      createdAt: new Date(dbSession.created_at),
+      lastMessage: '', // Se cargará cuando se seleccione la sesión
+      messageCount: dbSession.message_count,
+    };
+  }
+
   // Actualizar sesión con nuevo mensaje
-  static async updateSessionWithMessage(sessionId: string, message: string): Promise<void> {
-    const sessions = await this.getAllSessions();
+  static async updateSessionWithMessage(
+    sessionId: string, 
+    userId: string, 
+    agentType: string, 
+    message: string,
+    isUser: boolean = true
+  ): Promise<void> {
+    if (this.USE_DATABASE) {
+      try {
+        await DatabaseService.saveMessage(sessionId, userId, agentType, message, isUser);
+        return;
+      } catch (error) {
+        console.error('Error updating session in database:', error);
+        // Fallback to local storage
+      }
+    }
+
+    // Fallback: almacenamiento local
+    const sessions = await this.getAllSessions(userId, agentType);
     const sessionIndex = sessions.findIndex(s => s.id === sessionId);
     
     if (sessionIndex >= 0) {
@@ -112,10 +182,52 @@ export default class SessionService {
     }
   }
 
+  // Obtener mensajes de una sesión
+  static async getSessionMessages(sessionId: string, agentType: string): Promise<ChatMessage[]> {
+    if (this.USE_DATABASE) {
+      try {
+        const dbMessages = await DatabaseService.getSessionMessages(sessionId, agentType);
+        return dbMessages.map(this.convertDBMessageToLocal);
+      } catch (error) {
+        console.error('Error getting session messages from database:', error);
+      }
+    }
+
+    // Para almacenamiento local, no tenemos mensajes individuales guardados
+    // Esto requeriría una implementación más compleja
+    return [];
+  }
+
+  // Convertir mensaje de base de datos a formato local
+  private static convertDBMessageToLocal(dbMessage: ChatHistoryRecord): ChatMessage {
+    return {
+      id: `${dbMessage.session_id}_${dbMessage.timestamp}`,
+      text: dbMessage.message,
+      isUser: dbMessage.is_user,
+      timestamp: new Date(dbMessage.timestamp),
+    };
+  }
+
   // Eliminar una sesión
-  static async deleteSession(sessionId: string): Promise<void> {
+  static async deleteSession(sessionId: string, userId: string, agentType: string): Promise<void> {
+    if (this.USE_DATABASE) {
+      try {
+        await DatabaseService.deleteSession(sessionId, agentType);
+        
+        const currentId = await this.getCurrentSessionId();
+        if (currentId === sessionId) {
+          await StorageService.removeItem(this.CURRENT_SESSION_KEY);
+        }
+        return;
+      } catch (error) {
+        console.error('Error deleting session from database:', error);
+        // Fallback to local storage
+      }
+    }
+
+    // Fallback: almacenamiento local
     try {
-      const sessions = await this.getAllSessions();
+      const sessions = await this.getAllSessions(userId, agentType);
       const filteredSessions = sessions.filter(s => s.id !== sessionId);
       await StorageService.setItem(this.SESSIONS_KEY, JSON.stringify(filteredSessions));
       
@@ -129,7 +241,16 @@ export default class SessionService {
   }
 
   // Limpiar todas las sesiones
-  static async clearAllSessions(): Promise<void> {
+  static async clearAllSessions(userId: string, agentType: string): Promise<void> {
+    if (this.USE_DATABASE) {
+      try {
+        await DatabaseService.cleanupOldSessions(userId, agentType);
+      } catch (error) {
+        console.error('Error clearing sessions from database:', error);
+      }
+    }
+
+    // Fallback: almacenamiento local
     try {
       await StorageService.removeItem(this.SESSIONS_KEY);
       await StorageService.removeItem(this.CURRENT_SESSION_KEY);

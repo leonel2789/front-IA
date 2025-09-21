@@ -50,7 +50,7 @@ class GoogleDriveService {
         responseType: AuthSession.ResponseType.Code,
         redirectUri: AuthSession.makeRedirectUri({ 
           scheme: 'iafrontend',
-          preferLocalhost: true 
+          preferLocalhost: process.env.NODE_ENV === 'development'
         }),
         codeChallenge: null, // Esto forzará a Expo a generar PKCE automáticamente
         codeChallengeMethod: AuthSession.CodeChallengeMethod.S256,
