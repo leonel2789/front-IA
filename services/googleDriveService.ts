@@ -123,17 +123,23 @@ class GoogleDriveService {
       const refreshToken = await AsyncStorage.getItem('google_drive_refresh_token');
       if (!refreshToken) return false;
 
+      const tokenParams: any = {
+        client_id: GOOGLE_DRIVE_CONFIG.clientId!,
+        refresh_token: refreshToken,
+        grant_type: 'refresh_token',
+      };
+
+      // Solo agregar client_secret si está disponible
+      if (GOOGLE_DRIVE_CONFIG.clientSecret) {
+        tokenParams.client_secret = GOOGLE_DRIVE_CONFIG.clientSecret;
+      }
+
       const response = await fetch('https://oauth2.googleapis.com/token', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
         },
-        body: new URLSearchParams({
-          client_id: GOOGLE_DRIVE_CONFIG.clientId!,
-          client_secret: GOOGLE_DRIVE_CONFIG.clientSecret!,
-          refresh_token: refreshToken,
-          grant_type: 'refresh_token',
-        }).toString(),
+        body: new URLSearchParams(tokenParams).toString(),
       });
 
       const tokens = await response.json();
@@ -151,9 +157,14 @@ class GoogleDriveService {
     }
   }
 
-  private async findOrCreateFolder(parentId: string, folderName: string): Promise<string | null> {
+  private async findOrCreateFolder(parentId: string, folderName: string, retryCount = 0): Promise<string | null> {
     if (!this.accessToken) {
       throw new Error('Google Drive not authenticated');
+    }
+
+    // Límite de reintentos para evitar recursión infinita
+    if (retryCount > 3) {
+      throw new Error('Max retry attempts reached for folder creation');
     }
 
     try {
@@ -170,8 +181,8 @@ class GoogleDriveService {
         // Token expired, try to refresh
         const refreshSuccess = await this.refreshToken();
         if (refreshSuccess) {
-          // Retry with new token
-          return this.findOrCreateFolder(parentId, folderName);
+          // Retry with new token (con contador de reintentos)
+          return this.findOrCreateFolder(parentId, folderName, retryCount + 1);
         } else {
           throw new Error('Authentication failed - please log in again');
         }
@@ -205,8 +216,8 @@ class GoogleDriveService {
         // Token expired, try to refresh
         const refreshSuccess = await this.refreshToken();
         if (refreshSuccess) {
-          // Retry with new token
-          return this.findOrCreateFolder(parentId, folderName);
+          // Retry with new token (con contador de reintentos)
+          return this.findOrCreateFolder(parentId, folderName, retryCount + 1);
         } else {
           throw new Error('Authentication failed - please log in again');
         }
@@ -229,8 +240,14 @@ class GoogleDriveService {
       // Get the configured folder ID for this specific agent
       const configuredFolderId = GOOGLE_DRIVE_FOLDERS[agentRole];
 
-      // If the folder ID is the default placeholder, skip this agent
-      if (!configuredFolderId || configuredFolderId === 'your_general_folder_id_here' || configuredFolderId === '1VrlFNS-DmGW9AnKZeBqgii8vDcFdi-dB') {
+      // Verificar si todos los IDs son iguales (no configurados)
+      const allFolderIds = Object.values(GOOGLE_DRIVE_FOLDERS);
+      const uniqueFolderIds = new Set(allFolderIds);
+
+      if (uniqueFolderIds.size === 1 && allFolderIds[0] === '1VrlFNS-DmGW9AnKZeBqgii8vDcFdi-dB') {
+        // Si todos usan el mismo ID por defecto, usar ese ID como carpeta raíz
+        console.warn(`Using default folder ID for all agents. Consider configuring specific folder IDs.`);
+      } else if (!configuredFolderId || configuredFolderId === 'your_general_folder_id_here') {
         throw new Error(`Folder ID not configured for agent: ${agentRole}`);
       }
 
@@ -250,23 +267,38 @@ class GoogleDriveService {
     }
   }
 
-  private async readFileContent(fileUri: string): Promise<string> {
+  private async readFileContent(fileUri: string, maxSize: number = 50 * 1024 * 1024): Promise<string> {
     if (Platform.OS === 'web') {
       // En web, el fileUri es en realidad un blob URL o un File object
       try {
         const response = await fetch(fileUri);
-        const arrayBuffer = await response.arrayBuffer();
-        const uint8Array = new Uint8Array(arrayBuffer);
-        
-        // Convertir a base64
-        let binary = '';
-        const len = uint8Array.byteLength;
-        for (let i = 0; i < len; i++) {
-          binary += String.fromCharCode(uint8Array[i]);
+        const blob = await response.blob();
+
+        // Verificar tamaño del archivo
+        if (blob.size > maxSize) {
+          throw new Error(`El archivo es demasiado grande. Tamaño máximo permitido: ${maxSize / (1024 * 1024)}MB`);
         }
+
+        const arrayBuffer = await blob.arrayBuffer();
+        const uint8Array = new Uint8Array(arrayBuffer);
+
+        // Convertir a base64 en chunks para evitar problemas de memoria
+        const chunkSize = 1024 * 1024; // 1MB chunks
+        let binary = '';
+
+        for (let i = 0; i < uint8Array.byteLength; i += chunkSize) {
+          const chunk = uint8Array.slice(i, Math.min(i + chunkSize, uint8Array.byteLength));
+          for (let j = 0; j < chunk.length; j++) {
+            binary += String.fromCharCode(chunk[j]);
+          }
+        }
+
         return btoa(binary);
-      } catch (error) {
-        throw new Error('Failed to read file content on web');
+      } catch (error: any) {
+        if (error.message && error.message.includes('demasiado grande')) {
+          throw error;
+        }
+        throw new Error('Failed to read file content on web: ' + error.message);
       }
     } else {
       // En móvil, usar expo-file-system
@@ -275,13 +307,43 @@ class GoogleDriveService {
         throw new Error('File does not exist');
       }
 
+      // Verificar tamaño del archivo
+      if (fileInfo.size && fileInfo.size > maxSize) {
+        throw new Error(`El archivo es demasiado grande. Tamaño máximo permitido: ${maxSize / (1024 * 1024)}MB`);
+      }
+
       return await FileSystem.readAsStringAsync(fileUri, {
         encoding: FileSystem.EncodingType.Base64,
       });
     }
   }
 
-  async uploadFile({ fileUri, fileName, mimeType, agentRole }: UploadFileParams): Promise<boolean> {
+  async uploadFile({ fileUri, fileName, mimeType, agentRole }: UploadFileParams, retryCount = 0): Promise<boolean> {
+    // Límite de tamaño de archivo (50MB)
+    const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB en bytes
+
+    // Validación de tipo MIME
+    const ALLOWED_MIME_TYPES = [
+      'application/pdf',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'application/vnd.ms-excel',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'text/plain',
+      'text/csv',
+      'image/jpeg',
+      'image/png',
+      'image/gif'
+    ];
+
+    if (!ALLOWED_MIME_TYPES.includes(mimeType) && !mimeType.startsWith('text/')) {
+      throw new Error(`Tipo de archivo no permitido: ${mimeType}`);
+    }
+
+    // Límite de reintentos
+    if (retryCount > 2) {
+      throw new Error('Max retry attempts reached for file upload');
+    }
     if (!this.accessToken) {
       const authSuccess = await this.authenticate();
       if (!authSuccess) {
@@ -297,7 +359,7 @@ class GoogleDriveService {
       }
 
       // Read file content (compatible con web y móvil)
-      const fileContent = await this.readFileContent(fileUri);
+      const fileContent = await this.readFileContent(fileUri, MAX_FILE_SIZE);
 
       // Create multipart upload
       const metadata = {
@@ -330,11 +392,19 @@ class GoogleDriveService {
         // Token expired, try to refresh
         const refreshSuccess = await this.refreshToken();
         if (refreshSuccess) {
-          // Retry upload once with new token
-          return this.uploadFile({ fileUri, fileName, mimeType, agentRole });
+          // Retry upload with new token (con contador de reintentos)
+          return this.uploadFile({ fileUri, fileName, mimeType, agentRole }, retryCount + 1);
         } else {
           throw new Error('Authentication failed - please log in again');
         }
+      }
+
+      // Manejar errores de red con reintentos
+      if (response.status >= 500 && retryCount < 2) {
+        console.log(`Server error ${response.status}, retrying... (attempt ${retryCount + 1})`);
+        // Esperar antes de reintentar (backoff exponencial)
+        await new Promise(resolve => setTimeout(resolve, Math.pow(2, retryCount) * 1000));
+        return this.uploadFile({ fileUri, fileName, mimeType, agentRole }, retryCount + 1);
       }
 
       if (!response.ok) {

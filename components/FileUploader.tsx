@@ -8,6 +8,7 @@ import {
   ScrollView,
   ActivityIndicator,
   Modal,
+  FlatList,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
@@ -15,6 +16,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '../contexts/AuthContext';
 import { AI_AGENTS, UserRole } from '../config';
 import googleDriveService from '../services/googleDriveService';
+import uploadHistoryService, { UploadSession, UploadHistoryItem } from '../services/uploadHistoryService';
 
 interface FileUploadItem {
   uri: string;
@@ -37,6 +39,10 @@ const FileUploader: React.FC<FileUploaderProps> = ({ visible, onClose }) => {
   const [checkingAuth, setCheckingAuth] = useState(true);
   const [uploadComplete, setUploadComplete] = useState(false);
   const [uploadResults, setUploadResults] = useState<{successful: number, total: number}>({successful: 0, total: 0});
+  const [showHistory, setShowHistory] = useState(false);
+  const [uploadHistory, setUploadHistory] = useState<UploadSession[]>([]);
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+  const [expandedSession, setExpandedSession] = useState<string | null>(null);
 
   const currentRole = userRoles[0] || 'ia-general';
   const agentInfo = AI_AGENTS[currentRole];
@@ -44,11 +50,21 @@ const FileUploader: React.FC<FileUploaderProps> = ({ visible, onClose }) => {
   useEffect(() => {
     if (visible) {
       checkGoogleDriveAuth();
+      loadUploadHistory();
       // Reset upload state when modal opens
       setUploadComplete(false);
       setUploadResults({successful: 0, total: 0});
     }
   }, [visible]);
+
+  const loadUploadHistory = async () => {
+    try {
+      const history = await uploadHistoryService.getHistory();
+      setUploadHistory(history);
+    } catch (error) {
+      console.error('Error loading upload history:', error);
+    }
+  };
 
   const checkGoogleDriveAuth = async () => {
     setCheckingAuth(true);
@@ -128,14 +144,58 @@ const FileUploader: React.FC<FileUploaderProps> = ({ visible, onClose }) => {
       return;
     }
 
+    // Verificar tamaños de archivo antes de subir
+    const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
+    const oversizedFiles = selectedFiles.filter(file => file.size > MAX_FILE_SIZE);
+
+    if (oversizedFiles.length > 0) {
+      Alert.alert(
+        'Archivos muy grandes',
+        `Los siguientes archivos superan el límite de 50MB:\n${oversizedFiles.map(f => f.name).join('\n')}\n\nPor favor, selecciona archivos más pequeños.`
+      );
+      return;
+    }
+
     setUploading(true);
     const newProgress: { [key: string]: boolean } = {};
-    
+
+    // Crear nueva sesión de historial
+    const sessionId = uploadHistoryService.generateSessionId();
+    setCurrentSessionId(sessionId);
+    const newSession: UploadSession = {
+      id: sessionId,
+      date: new Date(),
+      agentRole: currentRole,
+      totalFiles: selectedFiles.length,
+      successCount: 0,
+      errorCount: 0,
+      items: []
+    };
+
     try {
-      for (const file of selectedFiles) {
+      // Guardar sesión inicial
+      await uploadHistoryService.saveSession(newSession);
+
+      // Subida paralela con límite de concurrencia
+      const CONCURRENT_UPLOADS = 3;
+      let uploadIndex = 0;
+      const uploadResults: Promise<{name: string, success: boolean, error?: string}>[] = [];
+
+      const uploadFile = async (file: FileUploadItem): Promise<{name: string, success: boolean, error?: string}> => {
         const fileKey = file.name;
         newProgress[fileKey] = false;
         setUploadProgress({ ...newProgress });
+
+        const startTime = Date.now();
+        const historyItem: UploadHistoryItem = {
+          id: uploadHistoryService.generateItemId(),
+          fileName: file.name,
+          fileSize: file.size,
+          mimeType: file.mimeType,
+          agentRole: currentRole,
+          status: 'pending',
+          timestamp: new Date()
+        };
 
         try {
           const success = await googleDriveService.uploadFile({
@@ -145,25 +205,66 @@ const FileUploader: React.FC<FileUploaderProps> = ({ visible, onClose }) => {
             agentRole: currentRole,
           });
 
-          if (success) {
-            newProgress[fileKey] = true;
-          } else {
-            throw new Error('Upload failed');
-          }
-        } catch (error) {
-          console.error(`Error uploading ${file.name}:`, error);
-          Alert.alert('Error', `No se pudo subir el archivo ${file.name}`);
-        }
+          const uploadDuration = Date.now() - startTime;
+          historyItem.status = success ? 'success' : 'error';
+          historyItem.uploadDuration = uploadDuration;
 
-        setUploadProgress({ ...newProgress });
+          // Guardar en historial
+          await uploadHistoryService.addItemToCurrentSession(historyItem, sessionId);
+
+          newProgress[fileKey] = success;
+          setUploadProgress({ ...newProgress });
+          return { name: file.name, success };
+        } catch (error: any) {
+          console.error(`Error uploading ${file.name}:`, error);
+
+          const uploadDuration = Date.now() - startTime;
+
+          // Mensajes de error más específicos
+          let errorMessage = `No se pudo subir ${file.name}`;
+          if (error.message) {
+            if (error.message.includes('Tipo de archivo no permitido')) {
+              errorMessage = `Tipo de archivo no permitido`;
+            } else if (error.message.includes('demasiado grande')) {
+              errorMessage = `Archivo demasiado grande`;
+            } else if (error.message.includes('Authentication failed')) {
+              errorMessage = 'Sesión expirada';
+            } else {
+              errorMessage = error.message;
+            }
+          }
+
+          // Guardar error en historial
+          historyItem.status = 'error';
+          historyItem.errorMessage = errorMessage;
+          historyItem.uploadDuration = uploadDuration;
+          await uploadHistoryService.addItemToCurrentSession(historyItem, sessionId);
+
+          Alert.alert('Error', `${file.name}: ${errorMessage}`);
+          newProgress[fileKey] = false;
+          setUploadProgress({ ...newProgress });
+          return { name: file.name, success: false, error: errorMessage };
+        }
+      };
+
+      // Procesar archivos en lotes
+      while (uploadIndex < selectedFiles.length) {
+        const batch = selectedFiles.slice(uploadIndex, uploadIndex + CONCURRENT_UPLOADS);
+        const batchPromises = batch.map(file => uploadFile(file));
+        const batchResults = await Promise.all(batchPromises);
+        uploadResults.push(...batchPromises);
+        uploadIndex += CONCURRENT_UPLOADS;
       }
 
       const successCount = Object.values(newProgress).filter(Boolean).length;
-      
+
+      // Recargar historial actualizado
+      await loadUploadHistory();
+
       // Mostrar resultado del upload
       setUploadResults({ successful: successCount, total: selectedFiles.length });
       setUploadComplete(true);
-      
+
       // Auto-limpiar después de 3 segundos si todos fueron exitosos
       if (successCount === selectedFiles.length) {
         setTimeout(() => {
@@ -199,8 +300,73 @@ const FileUploader: React.FC<FileUploaderProps> = ({ visible, onClose }) => {
   const handleClose = () => {
     if (!uploading) {
       resetUploadState();
+      setShowHistory(false);
       onClose();
     }
+  };
+
+  const renderHistoryItem = ({ item }: { item: UploadHistoryItem }) => (
+    <View style={[styles.historyItem, item.status === 'error' && styles.historyItemError]}>
+      <MaterialIcons
+        name={item.status === 'success' ? 'check-circle' : 'error'}
+        size={20}
+        color={item.status === 'success' ? '#4CAF50' : '#F44336'}
+      />
+      <View style={styles.historyItemContent}>
+        <Text style={styles.historyItemName} numberOfLines={1}>{item.fileName}</Text>
+        <Text style={styles.historyItemDetails}>
+          {uploadHistoryService.formatFileSize(item.fileSize)}
+          {item.uploadDuration && ` • ${uploadHistoryService.formatDuration(item.uploadDuration)}`}
+        </Text>
+        {item.errorMessage && (
+          <Text style={styles.historyItemErrorText}>{item.errorMessage}</Text>
+        )}
+      </View>
+    </View>
+  );
+
+  const renderSession = ({ item }: { item: UploadSession }) => {
+    const isExpanded = expandedSession === item.id;
+    const agentInfo = AI_AGENTS[item.agentRole];
+
+    return (
+      <View style={styles.sessionContainer}>
+        <TouchableOpacity
+          style={styles.sessionHeader}
+          onPress={() => setExpandedSession(isExpanded ? null : item.id)}
+        >
+          <View style={styles.sessionInfo}>
+            <View style={[styles.sessionAgentBadge, { backgroundColor: agentInfo.lightColor }]}>
+              <Text style={[styles.sessionAgentText, { color: agentInfo.color }]}>
+                {agentInfo.shortName}
+              </Text>
+            </View>
+            <View>
+              <Text style={styles.sessionDate}>
+                {item.date.toLocaleDateString()} {item.date.toLocaleTimeString()}
+              </Text>
+              <Text style={styles.sessionStats}>
+                {item.successCount} exitosos, {item.errorCount} errores de {item.totalFiles} archivos
+              </Text>
+            </View>
+          </View>
+          <MaterialIcons
+            name={isExpanded ? 'expand-less' : 'expand-more'}
+            size={24}
+            color="#666"
+          />
+        </TouchableOpacity>
+        {isExpanded && (
+          <View style={styles.sessionItems}>
+            {item.items.map((historyItem) => (
+              <View key={historyItem.id}>
+                {renderHistoryItem({ item: historyItem })}
+              </View>
+            ))}
+          </View>
+        )}
+      </View>
+    );
   };
 
   const getFileIcon = (mimeType: string) => {
@@ -424,6 +590,70 @@ const FileUploader: React.FC<FileUploaderProps> = ({ visible, onClose }) => {
             </View>
           )}
 
+          {/* History Button */}
+          <View style={styles.section}>
+            <TouchableOpacity
+              style={[styles.historyButton, { borderColor: agentInfo.color }]}
+              onPress={() => setShowHistory(!showHistory)}
+            >
+              <MaterialIcons name="history" size={24} color={agentInfo.color} />
+              <Text style={[styles.historyButtonText, { color: agentInfo.color }]}>
+                {showHistory ? 'Ocultar Historial' : 'Ver Historial de Subidas'}
+              </Text>
+              {uploadHistory.length > 0 && (
+                <View style={[styles.historyBadge, { backgroundColor: agentInfo.color }]}>
+                  <Text style={styles.historyBadgeText}>{uploadHistory.length}</Text>
+                </View>
+              )}
+            </TouchableOpacity>
+          </View>
+
+          {/* Upload History */}
+          {showHistory && (
+            <View style={styles.section}>
+              <View style={styles.historyHeader}>
+                <Text style={styles.sectionTitle}>Historial de Subidas</Text>
+                {uploadHistory.length > 0 && (
+                  <TouchableOpacity
+                    onPress={() => {
+                      Alert.alert(
+                        'Limpiar Historial',
+                        '¿Estás seguro de que quieres eliminar todo el historial?',
+                        [
+                          { text: 'Cancelar', style: 'cancel' },
+                          {
+                            text: 'Eliminar',
+                            style: 'destructive',
+                            onPress: async () => {
+                              await uploadHistoryService.clearHistory();
+                              setUploadHistory([]);
+                            }
+                          }
+                        ]
+                      );
+                    }}
+                  >
+                    <Text style={styles.clearHistoryText}>Limpiar</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+              {uploadHistory.length === 0 ? (
+                <View style={styles.emptyHistory}>
+                  <MaterialIcons name="history" size={48} color="#CCC" />
+                  <Text style={styles.emptyHistoryText}>No hay historial de subidas</Text>
+                </View>
+              ) : (
+                <FlatList
+                  data={uploadHistory}
+                  renderItem={renderSession}
+                  keyExtractor={item => item.id}
+                  style={styles.historyList}
+                  nestedScrollEnabled
+                />
+              )}
+            </View>
+          )}
+
           {/* Info */}
           <View style={styles.infoSection}>
             <MaterialIcons name="info" size={20} color="#666" />
@@ -442,6 +672,133 @@ const FileUploader: React.FC<FileUploaderProps> = ({ visible, onClose }) => {
 };
 
 const styles = StyleSheet.create({
+  historyButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 12,
+    borderWidth: 1,
+    borderRadius: 10,
+    backgroundColor: '#FAFAFA',
+  },
+  historyButtonText: {
+    marginLeft: 8,
+    fontSize: 14,
+    fontWeight: '600',
+    flex: 1,
+  },
+  historyBadge: {
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 8,
+  },
+  historyBadgeText: {
+    color: 'white',
+    fontSize: 11,
+    fontWeight: 'bold',
+  },
+  historyHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  clearHistoryText: {
+    color: '#F44336',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  historyList: {
+    maxHeight: 300,
+  },
+  emptyHistory: {
+    alignItems: 'center',
+    padding: 30,
+    backgroundColor: '#F8F8F8',
+    borderRadius: 10,
+  },
+  emptyHistoryText: {
+    marginTop: 10,
+    fontSize: 14,
+    color: '#999',
+  },
+  sessionContainer: {
+    backgroundColor: '#FFF',
+    borderRadius: 8,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+    overflow: 'hidden',
+  },
+  sessionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 12,
+  },
+  sessionInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  sessionAgentBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 4,
+    marginRight: 10,
+  },
+  sessionAgentText: {
+    fontSize: 11,
+    fontWeight: 'bold',
+  },
+  sessionDate: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#333',
+  },
+  sessionStats: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 2,
+  },
+  sessionItems: {
+    backgroundColor: '#FAFAFA',
+    borderTopWidth: 1,
+    borderTopColor: '#E0E0E0',
+  },
+  historyItem: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    padding: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F0F0F0',
+  },
+  historyItemError: {
+    backgroundColor: '#FFF5F5',
+  },
+  historyItemContent: {
+    marginLeft: 8,
+    flex: 1,
+  },
+  historyItemName: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: '#333',
+  },
+  historyItemDetails: {
+    fontSize: 11,
+    color: '#999',
+    marginTop: 2,
+  },
+  historyItemErrorText: {
+    fontSize: 11,
+    color: '#F44336',
+    marginTop: 2,
+    fontStyle: 'italic',
+  },
   container: {
     flex: 1,
     backgroundColor: '#FFFFFF',

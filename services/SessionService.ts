@@ -1,6 +1,7 @@
 import * as Crypto from 'expo-crypto';
 import StorageService from './StorageService';
 import DatabaseService, { ChatSession as DBChatSession, ChatHistoryRecord } from './DatabaseService';
+import SpringBootSessionService from './SpringBootSessionService';
 
 export interface ChatSession {
   id: string;
@@ -21,6 +22,7 @@ export default class SessionService {
   private static readonly SESSIONS_KEY = 'chat_sessions';
   private static readonly CURRENT_SESSION_KEY = 'current_session_id';
   private static readonly USE_DATABASE = process.env.EXPO_PUBLIC_USE_DATABASE === 'true';
+  private static readonly USE_SPRING_BOOT = process.env.EXPO_PUBLIC_USE_SPRING_BOOT === 'true';
 
   // Generar un ID único para la sesión
   static async generateSessionId(userId: string, agentType: string): Promise<string> {
@@ -30,6 +32,9 @@ export default class SessionService {
   // Obtener la sesión actual
   static async getCurrentSessionId(): Promise<string | null> {
     try {
+      if (this.USE_SPRING_BOOT) {
+        return await SpringBootSessionService.getCurrentSessionId();
+      }
       return await StorageService.getItem(this.CURRENT_SESSION_KEY);
     } catch (error) {
       console.error('Error getting current session:', error);
@@ -40,6 +45,10 @@ export default class SessionService {
   // Establecer la sesión actual
   static async setCurrentSessionId(sessionId: string): Promise<void> {
     try {
+      if (this.USE_SPRING_BOOT) {
+        await SpringBootSessionService.setCurrentSessionId(sessionId);
+        return;
+      }
       await StorageService.setItem(this.CURRENT_SESSION_KEY, sessionId);
     } catch (error) {
       console.error('Error setting current session:', error);
@@ -48,10 +57,25 @@ export default class SessionService {
 
   // Crear una nueva sesión
   static async createNewSession(
-    userId: string, 
-    agentType: string, 
+    userId: string,
+    agentType: string,
     firstMessage?: string
   ): Promise<string> {
+    // Si estamos usando Spring Boot, usar su servicio
+    if (this.USE_SPRING_BOOT) {
+      try {
+        const session = await SpringBootSessionService.createSession({
+          agentType,
+          sessionName: firstMessage ? this.generateSessionName(firstMessage) : undefined,
+          firstMessage,
+        });
+        return session.sessionId;
+      } catch (error) {
+        console.error('Error creating session in Spring Boot:', error);
+        // Fallback a la implementación actual
+      }
+    }
+
     const sessionId = await this.generateSessionId(userId, agentType);
     const sessionName = firstMessage ? this.generateSessionName(firstMessage) : 'Nueva conversación';
 
@@ -111,6 +135,17 @@ export default class SessionService {
 
   // Obtener todas las sesiones
   static async getAllSessions(userId: string, agentType: string): Promise<ChatSession[]> {
+    // Si estamos usando Spring Boot, usar su servicio
+    if (this.USE_SPRING_BOOT) {
+      try {
+        const springBootSessions = await SpringBootSessionService.getUserSessionsByAgent(agentType);
+        return springBootSessions.map(SpringBootSessionService.convertToLocalSession);
+      } catch (error) {
+        console.error('Error getting sessions from Spring Boot:', error);
+        // Fallback a la implementación actual
+      }
+    }
+
     if (this.USE_DATABASE) {
       try {
         const dbSessions = await DatabaseService.getUserSessions(userId, agentType);
@@ -150,12 +185,26 @@ export default class SessionService {
 
   // Actualizar sesión con nuevo mensaje
   static async updateSessionWithMessage(
-    sessionId: string, 
-    userId: string, 
-    agentType: string, 
+    sessionId: string,
+    userId: string,
+    agentType: string,
     message: string,
     isUser: boolean = true
   ): Promise<void> {
+    // Si estamos usando Spring Boot, usar su servicio
+    if (this.USE_SPRING_BOOT) {
+      try {
+        await SpringBootSessionService.addMessage(sessionId, {
+          content: message,
+          isUser,
+        });
+        return;
+      } catch (error) {
+        console.error('Error updating session in Spring Boot:', error);
+        // Fallback a la implementación actual
+      }
+    }
+
     if (this.USE_DATABASE) {
       try {
         await DatabaseService.saveMessage(sessionId, userId, agentType, message, isUser);
@@ -184,6 +233,17 @@ export default class SessionService {
 
   // Obtener mensajes de una sesión
   static async getSessionMessages(sessionId: string, agentType: string): Promise<ChatMessage[]> {
+    // Si estamos usando Spring Boot, usar su servicio
+    if (this.USE_SPRING_BOOT) {
+      try {
+        const springBootMessages = await SpringBootSessionService.getSessionMessages(sessionId);
+        return springBootMessages.map(SpringBootSessionService.convertToLocalMessage);
+      } catch (error) {
+        console.error('Error getting session messages from Spring Boot:', error);
+        // Fallback a la implementación actual
+      }
+    }
+
     if (this.USE_DATABASE) {
       try {
         const dbMessages = await DatabaseService.getSessionMessages(sessionId, agentType);
