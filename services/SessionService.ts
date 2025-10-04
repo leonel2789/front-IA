@@ -270,10 +270,26 @@ export default class SessionService {
 
   // Eliminar una sesión
   static async deleteSession(sessionId: string, userId: string, agentType: string): Promise<void> {
+    // Si estamos usando Spring Boot, usar su servicio
+    if (this.USE_SPRING_BOOT) {
+      try {
+        await SpringBootSessionService.deleteSession(sessionId, agentType);
+
+        const currentId = await this.getCurrentSessionId();
+        if (currentId === sessionId) {
+          await SpringBootSessionService.clearCurrentSession();
+        }
+        return;
+      } catch (error) {
+        console.error('Error deleting session from Spring Boot:', error);
+        // Fallback a la implementación actual
+      }
+    }
+
     if (this.USE_DATABASE) {
       try {
         await DatabaseService.deleteSession(sessionId, agentType);
-        
+
         const currentId = await this.getCurrentSessionId();
         if (currentId === sessionId) {
           await StorageService.removeItem(this.CURRENT_SESSION_KEY);
@@ -290,7 +306,7 @@ export default class SessionService {
       const sessions = await this.getAllSessions(userId, agentType);
       const filteredSessions = sessions.filter(s => s.id !== sessionId);
       await StorageService.setItem(this.SESSIONS_KEY, JSON.stringify(filteredSessions));
-      
+
       const currentId = await this.getCurrentSessionId();
       if (currentId === sessionId) {
         await StorageService.removeItem(this.CURRENT_SESSION_KEY);

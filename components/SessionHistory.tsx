@@ -31,16 +31,26 @@ const SessionHistory: React.FC<SessionHistoryProps> = ({
     onClose();
   };
 
-  const handleDeleteSession = (session: ChatSession) => {
+  const handleDeleteSession = async (session: ChatSession) => {
     Alert.alert(
       'Eliminar conversación',
-      `¿Estás seguro de que quieres eliminar "${session.name}"?`,
+      `¿Estás seguro de que quieres eliminar "${session.name}"?\n\nEsta acción no se puede deshacer.`,
       [
         { text: 'Cancelar', style: 'cancel' },
         {
           text: 'Eliminar',
           style: 'destructive',
-          onPress: () => deleteSession(session.id),
+          onPress: async () => {
+            try {
+              await deleteSession(session.id);
+            } catch (error) {
+              Alert.alert(
+                'Error',
+                'No se pudo eliminar la conversación. Intenta nuevamente.',
+                [{ text: 'OK' }]
+              );
+            }
+          },
         },
       ]
     );
