@@ -60,11 +60,16 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ children }) =>
   const createNewSession = async (firstMessage?: string): Promise<string> => {
     const userId = getUserId();
     const agentType = getCurrentAgentType();
-    
-    const newSessionId = await SessionService.createNewSession(userId, agentType, firstMessage);
+
+    // Generar sessionId localmente (N8N guardará el historial automáticamente)
+    const newSessionId = await SessionService.generateSessionId(userId, agentType);
     setCurrentSessionId(newSessionId);
     setCurrentMessages([]); // Limpiar mensajes al crear nueva sesión
-    await refreshSessions();
+    await SessionService.setCurrentSessionId(newSessionId);
+
+    // No creamos la sesión en Spring Boot aquí
+    // N8N la creará automáticamente cuando envíe el primer mensaje
+
     return newSessionId;
   };
 

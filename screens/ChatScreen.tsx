@@ -122,13 +122,12 @@ export default function ChatScreen() {
 
     setMessages(prev => [...prev, userMessage, loadingMessage])
 
-    // Si no hay sesión actual, crear una nueva
+    // Si no hay sesión actual, crear una nueva (solo genera el ID localmente)
     let sessionId = currentSessionId
     if (!sessionId) {
       sessionId = await createNewSession(trimmed)
-    } else {
-      await updateCurrentSession(trimmed, true) // true = es mensaje del usuario
     }
+    // NOTA: No guardamos aquí porque N8N lo hace automáticamente
 
     try {
       // Enviar en formato plano que n8n puede usar directamente
@@ -159,10 +158,8 @@ export default function ChatScreen() {
         return [...copy, { id: `${Date.now()}-bot`, text: reply, isUser: false }]
       })
 
-      // Guardar la respuesta de la IA en la base de datos
-      if (sessionId) {
-        await updateCurrentSession(reply, false) // false = es respuesta de la IA
-      }
+      // NOTA: N8N ya guardó tanto el mensaje del usuario como la respuesta
+      // No es necesario guardar manualmente aquí
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Error desconocido'
       setMessages(prev => {

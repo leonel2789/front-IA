@@ -107,11 +107,13 @@ export default class SpringBootSessionService {
 
   /**
    * Obtener todas las sesiones del usuario
+   * @param agentType - Tipo de agente (opcional, por defecto 'ia-general')
    */
-  static async getUserSessions(): Promise<SpringBootSession[]> {
+  static async getUserSessions(agentType?: string): Promise<SpringBootSession[]> {
     try {
       const headers = await this.getAuthHeaders();
-      const response = await fetch(`${this.BASE_URL}/api/sessions`, {
+      const agent = agentType || 'ia-general';
+      const response = await fetch(`${this.BASE_URL}/api/sessions?agentType=${encodeURIComponent(agent)}`, {
         method: 'GET',
         headers,
       });
@@ -154,10 +156,10 @@ export default class SpringBootSessionService {
   /**
    * Obtener una sesión específica con sus mensajes
    */
-  static async getSession(sessionId: string): Promise<SpringBootSession> {
+  static async getSession(sessionId: string, agentType: string): Promise<SpringBootSession> {
     try {
       const headers = await this.getAuthHeaders();
-      const response = await fetch(`${this.BASE_URL}/api/sessions/${sessionId}`, {
+      const response = await fetch(`${this.BASE_URL}/api/sessions/${sessionId}?agentType=${encodeURIComponent(agentType)}`, {
         method: 'GET',
         headers,
       });
@@ -181,10 +183,10 @@ export default class SpringBootSessionService {
   /**
    * Obtener mensajes de una sesión
    */
-  static async getSessionMessages(sessionId: string): Promise<SpringBootMessage[]> {
+  static async getSessionMessages(sessionId: string, agentType: string): Promise<SpringBootMessage[]> {
     try {
       const headers = await this.getAuthHeaders();
-      const response = await fetch(`${this.BASE_URL}/api/sessions/${sessionId}/messages`, {
+      const response = await fetch(`${this.BASE_URL}/api/sessions/${sessionId}/messages?agentType=${encodeURIComponent(agentType)}`, {
         method: 'GET',
         headers,
       });
@@ -203,10 +205,10 @@ export default class SpringBootSessionService {
   /**
    * Agregar mensaje a una sesión
    */
-  static async addMessage(sessionId: string, request: AddMessageRequest): Promise<SpringBootMessage> {
+  static async addMessage(sessionId: string, agentType: string, request: AddMessageRequest): Promise<SpringBootMessage> {
     try {
       const headers = await this.getAuthHeaders();
-      const response = await fetch(`${this.BASE_URL}/api/sessions/${sessionId}/messages`, {
+      const response = await fetch(`${this.BASE_URL}/api/sessions/${sessionId}/messages?agentType=${encodeURIComponent(agentType)}`, {
         method: 'POST',
         headers,
         body: JSON.stringify(request),
@@ -225,11 +227,12 @@ export default class SpringBootSessionService {
 
   /**
    * Actualizar nombre de sesión
+   * NOTA: Esta funcionalidad no está implementada en el backend actual
    */
-  static async updateSessionName(sessionId: string, sessionName: string): Promise<SpringBootSession> {
+  static async updateSessionName(sessionId: string, agentType: string, sessionName: string): Promise<SpringBootSession> {
     try {
       const headers = await this.getAuthHeaders();
-      const response = await fetch(`${this.BASE_URL}/api/sessions/${sessionId}/name`, {
+      const response = await fetch(`${this.BASE_URL}/api/sessions/${sessionId}/name?agentType=${encodeURIComponent(agentType)}`, {
         method: 'PUT',
         headers,
         body: JSON.stringify({ sessionName }),
@@ -249,11 +252,12 @@ export default class SpringBootSessionService {
 
   /**
    * Eliminar una sesión
+   * NOTA: Esta funcionalidad no está implementada en el backend actual
    */
-  static async deleteSession(sessionId: string): Promise<void> {
+  static async deleteSession(sessionId: string, agentType: string): Promise<void> {
     try {
       const headers = await this.getAuthHeaders();
-      const response = await fetch(`${this.BASE_URL}/api/sessions/${sessionId}`, {
+      const response = await fetch(`${this.BASE_URL}/api/sessions/${sessionId}?agentType=${encodeURIComponent(agentType)}`, {
         method: 'DELETE',
         headers,
       });
@@ -275,12 +279,12 @@ export default class SpringBootSessionService {
   }
 
   /**
-   * Buscar sesiones por nombre
+   * Buscar sesiones por contenido
    */
-  static async searchSessions(query: string): Promise<SpringBootSession[]> {
+  static async searchSessions(query: string, agentType: string): Promise<SpringBootSession[]> {
     try {
       const headers = await this.getAuthHeaders();
-      const response = await fetch(`${this.BASE_URL}/api/sessions/search?query=${encodeURIComponent(query)}`, {
+      const response = await fetch(`${this.BASE_URL}/api/sessions/search?query=${encodeURIComponent(query)}&agentType=${encodeURIComponent(agentType)}`, {
         method: 'GET',
         headers,
       });

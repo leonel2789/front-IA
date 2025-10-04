@@ -194,7 +194,7 @@ export default class SessionService {
     // Si estamos usando Spring Boot, usar su servicio
     if (this.USE_SPRING_BOOT) {
       try {
-        await SpringBootSessionService.addMessage(sessionId, {
+        await SpringBootSessionService.addMessage(sessionId, agentType, {
           content: message,
           isUser,
         });
@@ -236,7 +236,7 @@ export default class SessionService {
     // Si estamos usando Spring Boot, usar su servicio
     if (this.USE_SPRING_BOOT) {
       try {
-        const springBootMessages = await SpringBootSessionService.getSessionMessages(sessionId);
+        const springBootMessages = await SpringBootSessionService.getSessionMessages(sessionId, agentType);
         return springBootMessages.map(SpringBootSessionService.convertToLocalMessage);
       } catch (error) {
         console.error('Error getting session messages from Spring Boot:', error);
