@@ -46,6 +46,7 @@ export default function ChatScreen() {
     switchToSession,
     updateCurrentSession,
     clearAllSessions,
+    refreshSessions,
   } = useSession()
 
   const { logout, user, currentWebhookUrl, userRoles } = useAuth()
