@@ -158,8 +158,10 @@ export default function ChatScreen() {
         return [...copy, { id: `${Date.now()}-bot`, text: reply, isUser: false }]
       })
 
-      // NOTA: N8N ya guardó tanto el mensaje del usuario como la respuesta
-      // No es necesario guardar manualmente aquí
+      // N8N ya guardó los mensajes en n8n_chat_histories_laboral
+      // No es necesario guardar en Spring Boot (evita duplicados)
+      // Solo refrescamos las sesiones para actualizar el historial
+      refreshSessions().catch(err => console.error('Error refreshing sessions:', err))
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Error desconocido'
       setMessages(prev => {
