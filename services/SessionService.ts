@@ -78,6 +78,7 @@ export default class SessionService {
     if (this.USE_SPRING_BOOT) {
       try {
         const session = await SpringBootSessionService.createSession({
+          userId,
           agentType,
           sessionName: firstMessage ? this.generateSessionName(firstMessage) : undefined,
           firstMessage,
