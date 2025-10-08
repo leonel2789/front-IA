@@ -75,17 +75,26 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       // Decodificar el JWT (solo la parte del payload)
       const payload = accessToken.split('.')[1];
       const decodedPayload = JSON.parse(atob(payload));
-      
+
+      console.log('[AuthContext] Token payload:', {
+        realm_access: decodedPayload.realm_access,
+        resource_access: decodedPayload.resource_access
+      });
+
       // Extraer roles del realm y del cliente
       const realmRoles = decodedPayload.realm_access?.roles || [];
       const clientRoles = decodedPayload.resource_access?.[KEYCLOAK_CONFIG.clientId]?.roles || [];
-      
+
+      console.log('[AuthContext] Extracted roles:', { realmRoles, clientRoles, AVAILABLE_ROLES });
+
       // Combinar todos los roles y filtrar solo los que nos interesan
       const allRoles = [...realmRoles, ...clientRoles];
-      const validRoles = allRoles.filter((role: string) => 
+      const validRoles = allRoles.filter((role: string) =>
         AVAILABLE_ROLES.includes(role as UserRole)
       ) as UserRole[];
-      
+
+      console.log('[AuthContext] Valid roles after filtering:', validRoles);
+
       return validRoles;
     } catch (error) {
       console.error('Error extracting roles from token:', error);

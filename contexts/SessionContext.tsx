@@ -34,7 +34,9 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ children }) =>
   }, [user, userRoles]);
 
   const getCurrentAgentType = (): string => {
-    return userRoles[0] || 'ia-general';
+    const agentType = userRoles.length > 0 ? userRoles[0] : 'ia-general';
+    console.log('[SessionContext] getCurrentAgentType:', { userRoles, agentType });
+    return agentType;
   };
 
   const getUserId = (): string => {
