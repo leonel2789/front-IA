@@ -26,6 +26,7 @@ export interface SpringBootMessage {
 }
 
 export interface CreateSessionRequest {
+  userId?: string;
   agentType: string;
   sessionName?: string;
   firstMessage?: string;
