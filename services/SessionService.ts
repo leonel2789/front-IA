@@ -84,10 +84,10 @@ export default class SessionService {
       try {
         await DatabaseService.createChatSession(userId, agentType, sessionName);
         await this.setCurrentSessionId(sessionId);
-        
+
         // Limpiar sesiones antiguas (mantener solo 30)
         await DatabaseService.cleanupOldSessions(userId, agentType);
-        
+
         return sessionId;
       } catch (error) {
         console.error('Error creating session in database:', error);
@@ -107,6 +107,23 @@ export default class SessionService {
     await this.saveSession(session);
     await this.setCurrentSessionId(sessionId);
     return sessionId;
+  }
+
+  // Crear o obtener sesión actual (alias para compatibilidad)
+  static async createOrGetSession(
+    userId: string,
+    agentType: string,
+    firstMessage?: string
+  ): Promise<string> {
+    const currentId = await this.getCurrentSessionId();
+
+    // Si ya existe una sesión activa, retornarla
+    if (currentId) {
+      return currentId;
+    }
+
+    // Si no existe, crear una nueva
+    return await this.createNewSession(userId, agentType, firstMessage);
   }
 
   // Generar nombre de sesión basado en el primer mensaje
