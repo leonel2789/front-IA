@@ -55,6 +55,19 @@ export default class SessionService {
     }
   }
 
+  // Limpiar la sesión actual (para crear una nueva)
+  static async clearCurrentSession(): Promise<void> {
+    try {
+      if (this.USE_SPRING_BOOT) {
+        await SpringBootSessionService.clearCurrentSession();
+        return;
+      }
+      await StorageService.removeItem(this.CURRENT_SESSION_KEY);
+    } catch (error) {
+      console.error('Error clearing current session:', error);
+    }
+  }
+
   // Crear una nueva sesión
   static async createNewSession(
     userId: string,

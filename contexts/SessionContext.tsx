@@ -61,8 +61,11 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ children }) =>
     const userId = getUserId();
     const agentType = getCurrentAgentType();
 
-    // Crear sesión en Spring Boot (o base de datos)
-    const newSessionId = await SessionService.createOrGetSession(userId, agentType, firstMessage);
+    // IMPORTANTE: Limpiar sessionId actual antes de crear uno nuevo
+    await SessionService.clearCurrentSession();
+
+    // Crear nueva sesión (ahora createOrGetSession no encontrará un sessionId viejo)
+    const newSessionId = await SessionService.createNewSession(userId, agentType, firstMessage);
     setCurrentSessionId(newSessionId);
     setCurrentMessages([]); // Limpiar mensajes al crear nueva sesión
 
