@@ -31,7 +31,10 @@ const SessionHistory: React.FC<SessionHistoryProps> = ({
     onClose();
   };
 
-  const handleDeleteSession = async (session: ChatSession) => {
+  const handleDeleteSession = async (session: ChatSession, event?: any) => {
+    // Detener la propagación del evento para evitar que se active el click del item
+    event?.stopPropagation?.();
+
     Alert.alert(
       'Eliminar conversación',
       `¿Estás seguro de que quieres eliminar "${session.name}"?\n\nEsta acción no se puede deshacer.`,
@@ -42,8 +45,11 @@ const SessionHistory: React.FC<SessionHistoryProps> = ({
           style: 'destructive',
           onPress: async () => {
             try {
+              console.log('[SessionHistory] Eliminando sesión:', session.id);
               await deleteSession(session.id);
+              console.log('[SessionHistory] Sesión eliminada exitosamente');
             } catch (error) {
+              console.error('[SessionHistory] Error eliminando sesión:', error);
               Alert.alert(
                 'Error',
                 'No se pudo eliminar la conversación. Intenta nuevamente.',
@@ -106,7 +112,10 @@ const SessionHistory: React.FC<SessionHistoryProps> = ({
         </View>
         <TouchableOpacity
           style={styles.deleteButton}
-          onPress={() => handleDeleteSession(item)}
+          onPress={(e) => {
+            e.stopPropagation();
+            handleDeleteSession(item, e);
+          }}
         >
           <MaterialCommunityIcons name="delete-outline" size={18} color="#999" />
         </TouchableOpacity>
